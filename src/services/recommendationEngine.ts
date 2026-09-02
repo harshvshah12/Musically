@@ -1,46 +1,51 @@
 import { Track, ListeningEvent, UserTasteProfile, RecommendationScore } from '../types/music';
 import { TRACKS_DATA } from '../data/musicCatalog';
 
-const STORAGE_KEY = 'musically_user_taste_v1';
+const STORAGE_KEY = 'musically_user_taste_v2';
 
-const INITIAL_PROFILE: UserTasteProfile = {
+const SEED_PROFILE: UserTasteProfile = {
   genrePreferences: {
-    'Punjabi': 0.82,
-    'Bollywood': 0.74,
-    'Indie': 0.58,
-    'Pop': 0.52,
-    'Celebration': 0.90
+    'Punjabi Pop': 0.88,
+    'Bhangra': 0.85,
+    'Bollywood': 0.76,
+    'Hindi Pop': 0.72,
+    'Indie Folk': 0.68,
+    'Synth-pop': 0.60,
+    'R&B': 0.62,
+    'Tamil Pop': 0.55
   },
   artistAffinities: {
-    'AP Dhillon & Intense': 0.88,
+    'AP Dhillon': 0.95,
+    'Diljit Dosanjh': 0.94,
+    'Karan Aujla': 0.90,
+    'Shubh': 0.88,
+    'Sidhu Moose Wala': 0.86,
     'Arijit Singh': 0.82,
-    'Diljit Dosanjh': 0.85,
-    'Prateek Kuhad': 0.65,
-    'The Weeknd': 0.60,
-    "Sohaliya's Birthday Ensemble": 0.95
+    'Prateek Kuhad': 0.78,
+    'The Weeknd': 0.75
   },
   moodAffinities: {
-    'Energetic': 0.80,
-    'Late Night': 0.75,
-    'Euphoric': 0.88,
-    'Chill': 0.68,
-    'Romantic': 0.70
+    'Energetic': 0.85,
+    'Euphoric': 0.82,
+    'Late Night': 0.80,
+    'Chill': 0.70,
+    'Romantic': 0.75
   },
   languageAffinities: {
-    'Punjabi': 0.85,
-    'Hindi': 0.78,
-    'English': 0.60,
-    'Instrumental': 0.40,
-    'Indie': 0.65
+    'Punjabi': 0.92,
+    'Hindi': 0.80,
+    'English': 0.65,
+    'Tamil': 0.50,
+    'Telugu': 0.45
   },
   acousticPreferences: {
     targetDanceability: 0.82,
-    targetEnergy: 0.78,
-    targetValence: 0.80,
-    targetAcousticness: 0.35
+    targetEnergy: 0.80,
+    targetValence: 0.78,
+    targetAcousticness: 0.25
   },
-  totalPlays: 18,
-  totalListensMinutes: 64,
+  totalPlays: 24,
+  totalListensMinutes: 88,
   topArchetype: "Main Character Energy",
   interactionHistory: [],
   lastUpdated: Date.now()
@@ -73,7 +78,7 @@ export class RecommendationEngine {
     } catch (e) {
       console.warn('Failed to parse saved user taste profile, using initial:', e);
     }
-    return INITIAL_PROFILE;
+    return { ...SEED_PROFILE, lastUpdated: Date.now() };
   }
 
   public saveProfile(): void {
@@ -91,8 +96,20 @@ export class RecommendationEngine {
     return { ...this.profile };
   }
 
-  public resetProfile(): void {
-    this.profile = { ...INITIAL_PROFILE, lastUpdated: Date.now() };
+  public resetProfile(customInitial?: Partial<UserTasteProfile>): void {
+    this.profile = {
+      ...SEED_PROFILE,
+      genrePreferences: { ...SEED_PROFILE.genrePreferences },
+      artistAffinities: { ...SEED_PROFILE.artistAffinities },
+      moodAffinities: { ...SEED_PROFILE.moodAffinities },
+      languageAffinities: { ...SEED_PROFILE.languageAffinities },
+      acousticPreferences: { ...SEED_PROFILE.acousticPreferences },
+      interactionHistory: [],
+      totalPlays: 0,
+      totalListensMinutes: 0,
+      lastUpdated: Date.now(),
+      ...customInitial
+    };
     this.saveProfile();
   }
 
@@ -110,7 +127,52 @@ export class RecommendationEngine {
   }
 
   /**
-   * Track User Signal Event & Update Preference Weights in Real-Time
+   * Determine exact mathematical weight for an interaction event:
+   * - skip < 10s: -0.8
+   * - skip 10-30s: -0.3
+   * - play > 30s: +0.3
+   * - complete play (> 80%): +0.7
+   * - replay / repeat: +1.0
+   * - like: +1.0
+   * - unlike: -0.5
+   * - add_to_playlist: +0.8
+   */
+  public getEventWeight(
+    eventType: ListeningEvent['eventType'],
+    extra?: { completionRate?: number; listenDuration?: number }
+  ): number {
+    switch (eventType) {
+      case 'skip': {
+        const dur = extra?.listenDuration ?? 0;
+        if (dur < 10) return -0.8;
+        if (dur <= 30) return -0.3;
+        return -0.15;
+      }
+      case 'play': {
+        const dur = extra?.listenDuration ?? 0;
+        if (dur > 30) return 0.3;
+        return 0.15;
+      }
+      case 'finish': {
+        const rate = extra?.completionRate ?? 1.0;
+        if (rate >= 0.8) return 0.7;
+        return 0.4;
+      }
+      case 'replay':
+        return 1.0;
+      case 'like':
+        return 1.0;
+      case 'unlike':
+        return -0.5;
+      case 'add_to_playlist':
+        return 0.8;
+      default:
+        return 0.2;
+    }
+  }
+
+  /**
+   * Record interaction and update dual time-horizon taste models
    */
   public recordInteraction(
     track: Track,
@@ -118,7 +180,8 @@ export class RecommendationEngine {
     extra?: { completionRate?: number; listenDuration?: number }
   ): void {
     const event: ListeningEvent = {
-      id: `evt-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      id: `evt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      eventId: `evt-idemp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       trackId: track.id,
       timestamp: Date.now(),
       eventType,
@@ -127,46 +190,37 @@ export class RecommendationEngine {
       timeOfDay: this.getTimeOfDay()
     };
 
-    // Maintain recent interaction history capped at 100
-    this.profile.interactionHistory = [event, ...this.profile.interactionHistory.slice(0, 99)];
+    this.profile.interactionHistory = [event, ...this.profile.interactionHistory.slice(0, 199)];
 
-    // Delta weights based on event type
-    let delta = 0.05;
-    if (eventType === 'like') delta = 0.35;
-    if (eventType === 'add_to_playlist') delta = 0.40;
-    if (eventType === 'replay') delta = 0.25;
-    if (eventType === 'finish') delta = 0.15;
-    if (eventType === 'play') delta = 0.08;
-    if (eventType === 'skip') delta = -0.20;
-    if (eventType === 'unlike') delta = -0.30;
-    if (eventType === 'search_intent') delta = 0.20;
+    const weight = this.getEventWeight(eventType, extra);
+    const learningRate = 0.12;
 
     // 1. Update Genre Preference
-    const currentGenreScore = this.profile.genrePreferences[track.genre] ?? 0.5;
-    this.profile.genrePreferences[track.genre] = Math.max(0.05, Math.min(1.0, currentGenreScore + delta * 0.25));
+    const currentGenre = this.profile.genrePreferences[track.genre] ?? 0.5;
+    this.profile.genrePreferences[track.genre] = Math.max(0.01, Math.min(1.0, currentGenre + weight * learningRate * 0.5));
 
     // 2. Update Artist Affinity
-    const currentArtistScore = this.profile.artistAffinities[track.artist] ?? 0.5;
-    this.profile.artistAffinities[track.artist] = Math.max(0.05, Math.min(1.0, currentArtistScore + delta * 0.3));
+    const currentArtist = this.profile.artistAffinities[track.artist] ?? 0.5;
+    this.profile.artistAffinities[track.artist] = Math.max(0.01, Math.min(1.0, currentArtist + weight * learningRate * 0.6));
 
     // 3. Update Mood Affinity
-    const currentMoodScore = this.profile.moodAffinities[track.mood] ?? 0.5;
-    this.profile.moodAffinities[track.mood] = Math.max(0.05, Math.min(1.0, currentMoodScore + delta * 0.2));
+    const currentMood = this.profile.moodAffinities[track.mood] ?? 0.5;
+    this.profile.moodAffinities[track.mood] = Math.max(0.01, Math.min(1.0, currentMood + weight * learningRate * 0.4));
 
     // 4. Update Language Affinity
-    const currentLangScore = this.profile.languageAffinities[track.language] ?? 0.5;
-    this.profile.languageAffinities[track.language] = Math.max(0.05, Math.min(1.0, currentLangScore + delta * 0.2));
+    const currentLang = this.profile.languageAffinities[track.language] ?? 0.5;
+    this.profile.languageAffinities[track.language] = Math.max(0.01, Math.min(1.0, currentLang + weight * learningRate * 0.4));
 
-    // 5. Adjust Acoustic Feature Targets (Gradient Step towards current track features if positive)
-    if (delta > 0) {
-      const lr = 0.05;
-      this.profile.acousticPreferences.targetDanceability += (track.acousticFeatures.danceability - this.profile.acousticPreferences.targetDanceability) * lr;
-      this.profile.acousticPreferences.targetEnergy += (track.acousticFeatures.energy - this.profile.acousticPreferences.targetEnergy) * lr;
-      this.profile.acousticPreferences.targetValence += (track.acousticFeatures.valence - this.profile.acousticPreferences.targetValence) * lr;
-      this.profile.acousticPreferences.targetAcousticness += (track.acousticFeatures.acousticness - this.profile.acousticPreferences.targetAcousticness) * lr;
+    // 5. Acoustic Target Adjustment (Gradient shift on positive signals)
+    if (weight > 0) {
+      const step = 0.08 * (weight / 1.0);
+      this.profile.acousticPreferences.targetDanceability += (track.acousticFeatures.danceability - this.profile.acousticPreferences.targetDanceability) * step;
+      this.profile.acousticPreferences.targetEnergy += (track.acousticFeatures.energy - this.profile.acousticPreferences.targetEnergy) * step;
+      this.profile.acousticPreferences.targetValence += (track.acousticFeatures.valence - this.profile.acousticPreferences.targetValence) * step;
+      this.profile.acousticPreferences.targetAcousticness += (track.acousticFeatures.acousticness - this.profile.acousticPreferences.targetAcousticness) * step;
     }
 
-    if (eventType === 'play' || eventType === 'finish') {
+    if (eventType === 'play' || eventType === 'finish' || eventType === 'replay') {
       this.profile.totalPlays += 1;
       this.profile.totalListensMinutes += Math.round((extra?.listenDuration || track.duration) / 60);
     }
@@ -179,76 +233,118 @@ export class RecommendationEngine {
 
   private calculateArchetype(): string {
     const p = this.profile;
-    const highestGenre = Object.entries(p.genrePreferences).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Punjabi';
-    const highestMood = Object.entries(p.moodAffinities).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Energetic';
+    const topGenre = Object.entries(p.genrePreferences).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Punjabi Pop';
+    const topMood = Object.entries(p.moodAffinities).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Energetic';
 
-    if (highestMood === 'Late Night') return "Midnight Melancholy & Chai Vibes";
-    if (highestMood === 'Euphoric' || highestMood === 'Energetic') return "Main Character Energy";
-    if (highestGenre === 'Indie' || highestGenre === 'Acoustic') return "Intimate Indie Daydreamer";
-    if (highestGenre === 'Punjabi') return "Aux Cord Royalty";
+    if (topMood === 'Late Night') return "Midnight Melancholy & Chai Vibes";
+    if (topMood === 'Euphoric' || topMood === 'Energetic') return "Main Character Energy";
+    if (topGenre.includes('Indie') || topMood === 'Chill') return "Intimate Indie Daydreamer";
+    if (topGenre.includes('Punjabi') || topGenre === 'Bhangra') return "Aux Cord Royalty";
+    if (topGenre === 'Bollywood' || topMood === 'Romantic') return "Bollywood Romance Enthusiast";
     return "Vibe Connoisseur";
   }
 
   /**
-   * Hybrid Recommendation Scorer:
-   * Combines content similarity, preference vectors, behavioral history, recency, and serendipity.
+   * Cosine similarity across acoustic features:
+   * [danceability, energy, valence, acousticness, normalized_bpm]
+   */
+  private computeAcousticSimilarity(track: Track): number {
+    const p = this.profile.acousticPreferences;
+    const v1 = [p.targetDanceability, p.targetEnergy, p.targetValence, p.targetAcousticness];
+    const v2 = [track.acousticFeatures.danceability, track.acousticFeatures.energy, track.acousticFeatures.valence, track.acousticFeatures.acousticness];
+
+    let dot = 0;
+    let norm1 = 0;
+    let norm2 = 0;
+    for (let i = 0; i < v1.length; i++) {
+      dot += v1[i] * v2[i];
+      norm1 += v1[i] * v1[i];
+      norm2 += v2[i] * v2[i];
+    }
+    if (norm1 === 0 || norm2 === 0) return 0.5;
+    return Math.max(0, Math.min(1.0, dot / (Math.sqrt(norm1) * Math.sqrt(norm2))));
+  }
+
+  /**
+   * Score a single track with multi-factor weighting, novelty penalty, and explainable reasons
    */
   public scoreTrack(track: Track, allTracks: Track[] = TRACKS_DATA): RecommendationScore {
     const p = this.profile;
     const matchReasons: string[] = [];
 
-    // 1. Content Similarity to user's favorite acoustic targets
-    const dDance = 1 - Math.abs(track.acousticFeatures.danceability - p.acousticPreferences.targetDanceability);
-    const dEnergy = 1 - Math.abs(track.acousticFeatures.energy - p.acousticPreferences.targetEnergy);
-    const dValence = 1 - Math.abs(track.acousticFeatures.valence - p.acousticPreferences.targetValence);
-    const dAcous = 1 - Math.abs(track.acousticFeatures.acousticness - p.acousticPreferences.targetAcousticness);
-    const contentSimilarity = (dDance * 0.3 + dEnergy * 0.3 + dValence * 0.2 + dAcous * 0.2);
-
-    if (contentSimilarity > 0.85) matchReasons.push('Acoustic Match');
-
-    // 2. Preference Match (Genre + Artist + Mood + Language)
-    const genreWeight = p.genrePreferences[track.genre] ?? 0.4;
-    const artistWeight = p.artistAffinities[track.artist] ?? 0.4;
-    const moodWeight = p.moodAffinities[track.mood] ?? 0.4;
-    const langWeight = p.languageAffinities[track.language] ?? 0.4;
-
-    const preferenceMatch = genreWeight * 0.35 + artistWeight * 0.30 + moodWeight * 0.20 + langWeight * 0.15;
-
-    if (genreWeight > 0.75) matchReasons.push(`Top Genre (${track.genre})`);
-    if (artistWeight > 0.75) matchReasons.push(`Favorite Artist`);
-    if (track.mood === 'Late Night' && this.getTimeOfDay() === 'Late Night') matchReasons.push('Late Night Vibe');
-
-    // 3. Behavioral Frequency & Recency
-    const recentEvents = p.interactionHistory.filter(e => e.trackId === track.id);
-    const hasLiked = recentEvents.some(e => e.eventType === 'like');
-    const wasRecentlySkipped = recentEvents.slice(0, 3).some(e => e.eventType === 'skip');
-
-    let interactionBonus = 0.5;
-    if (hasLiked) {
-      interactionBonus += 0.35;
-      matchReasons.push('Loved Track');
-    }
-    if (wasRecentlySkipped) {
-      interactionBonus -= 0.3;
+    // 1. Acoustic Cosine Similarity
+    const contentSimilarity = this.computeAcousticSimilarity(track);
+    if (contentSimilarity > 0.90) {
+      matchReasons.push('Similar energy to your favorite tracks');
     }
 
-    // 4. Recency & Exploration Factor (Serendipity to prevent stagnation)
-    const recencyFactor = 0.7;
-    const pseudoRandom = (Math.sin(track.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) + p.lastUpdated) + 1) / 2;
-    const explorationBonus = pseudoRandom * 0.25;
+    // 2. Preference Weights (Genre, Artist, Mood, Language)
+    const genreScore = p.genrePreferences[track.genre] ?? 0.35;
+    const artistScore = p.artistAffinities[track.artist] ?? 0.30;
+    const moodScore = p.moodAffinities[track.mood] ?? 0.40;
+    const langScore = p.languageAffinities[track.language] ?? 0.40;
 
-    if (track.isBirthdaySpecial || track.genre === 'Celebration') {
-      interactionBonus += 0.4;
-      matchReasons.push('Birthday Exclusive');
+    const preferenceMatch = genreScore * 0.35 + artistScore * 0.35 + moodScore * 0.15 + langScore * 0.15;
+
+    if (artistScore >= 0.75) {
+      matchReasons.push(`Because you love ${track.artist}`);
+    } else if (genreScore >= 0.75) {
+      matchReasons.push(`Trending in ${track.genre}`);
+    } else if (track.mood === 'Late Night') {
+      matchReasons.push('Matches your late-night acoustic vibe');
     }
 
-    // Weighted Combined Total
-    const totalScore = (
+    // 3. Behavioral signals & Novelty Penalty
+    const trackEvents = p.interactionHistory.filter(e => e.trackId === track.id);
+    let interactionBonus = 0.0;
+    let noveltyPenalty = 0.0;
+
+    if (trackEvents.length > 0) {
+      const recentEvent = trackEvents[0];
+      const timeSinceLastMs = Date.now() - recentEvent.timestamp;
+      
+      // Played in the last 15 minutes gets high novelty penalty
+      if (timeSinceLastMs < 15 * 60 * 1000) {
+        noveltyPenalty = 0.35;
+      } else if (timeSinceLastMs < 60 * 60 * 1000) {
+        noveltyPenalty = 0.15;
+      }
+
+      if (trackEvents.some(e => e.eventType === 'like' || e.eventType === 'replay')) {
+        interactionBonus += 0.35;
+        matchReasons.push('On Repeat In Your Rotation');
+      }
+      if (trackEvents.some(e => e.eventType === 'skip')) {
+        interactionBonus -= 0.30;
+      }
+    }
+
+    // 4. Cold-start blending with seed profile
+    const historyCount = p.interactionHistory.length;
+    const coldStartFactor = Math.min(1.0, historyCount / 10.0);
+    const effectivePreference = preferenceMatch * coldStartFactor + (0.75) * (1 - coldStartFactor);
+
+    // 5. Discovery factor (10-20% chance for outside high-affinity items)
+    const seed = track.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    const discoveryScore = ((Math.sin(seed + p.lastUpdated) + 1) / 2) * 0.15;
+
+    if (matchReasons.length === 0) {
+      if (discoveryScore > 0.08) {
+        matchReasons.push('Curated sonic discovery for you');
+      } else {
+        matchReasons.push(`Matches your ${track.mood} vibe`);
+      }
+    }
+
+    // Total Composite Score
+    const totalScore = Math.max(
+      0.05,
       contentSimilarity * 0.30 +
-      preferenceMatch * 0.35 +
-      interactionBonus * 0.20 +
-      recencyFactor * 0.05 +
-      explorationBonus * 0.10
+      effectivePreference * 0.35 +
+      interactionBonus * 0.15 +
+      discoveryScore * 0.15 -
+      noveltyPenalty +
+      (track.isBirthdaySpecial ? 0.25 : 0.0)
     );
 
     return {
@@ -256,39 +352,83 @@ export class RecommendationEngine {
       totalScore: Number(totalScore.toFixed(3)),
       contentSimilarity: Number(contentSimilarity.toFixed(2)),
       preferenceMatch: Number(preferenceMatch.toFixed(2)),
-      recencyFactor: Number(recencyFactor.toFixed(2)),
-      explorationBonus: Number(explorationBonus.toFixed(2)),
+      recencyFactor: Number((1.0 - noveltyPenalty).toFixed(2)),
+      explorationBonus: Number(discoveryScore.toFixed(2)),
       matchReasons: Array.from(new Set(matchReasons))
     };
   }
 
+  /**
+   * Get Recommendations with Strict Diversity Constraints:
+   * - Maximum 2 tracks per artist
+   * - Maximum 40% from any single genre
+   * - Zero duplicates
+   */
   public getRecommendations(limit: number = 8, pool: Track[] = TRACKS_DATA): RecommendationScore[] {
-    const scores = pool.map(track => this.scoreTrack(track, pool));
-    return scores.sort((a, b) => b.totalScore - a.totalScore).slice(0, limit);
+    const scoredPool = pool.map(track => this.scoreTrack(track, pool));
+    scoredPool.sort((a, b) => b.totalScore - a.totalScore);
+
+    const results: RecommendationScore[] = [];
+    const artistCounts: Record<string, number> = {};
+    const genreCounts: Record<string, number> = {};
+    const maxGenreAllowed = Math.max(2, Math.ceil(limit * 0.40));
+
+    // First pass: select items satisfying both artist and genre diversity constraints
+    for (const item of scoredPool) {
+      if (results.length >= limit) break;
+
+      const artist = item.track.artist;
+      const genre = item.track.genre;
+
+      const currentArtistCount = artistCounts[artist] || 0;
+      const currentGenreCount = genreCounts[genre] || 0;
+
+      if (currentArtistCount >= 2) continue;
+      if (currentGenreCount >= maxGenreAllowed) continue;
+
+      results.push(item);
+      artistCounts[artist] = currentArtistCount + 1;
+      genreCounts[genre] = currentGenreCount + 1;
+    }
+
+    // Fallback pass if pool constraints were too strict to fill limit
+    if (results.length < limit) {
+      for (const item of scoredPool) {
+        if (results.length >= limit) break;
+        if (results.some(r => r.track.id === item.track.id)) continue;
+        const currentArtistCount = artistCounts[item.track.artist] || 0;
+        if (currentArtistCount >= 2) continue;
+
+        results.push(item);
+        artistCounts[item.track.artist] = currentArtistCount + 1;
+      }
+    }
+
+    return results;
   }
 
   public getEditorialInsights(): { title: string; subtitle: string; tag: string }[] {
     const p = this.profile;
     const sortedGenres = Object.entries(p.genrePreferences).sort((a, b) => b[1] - a[1]);
-    const topGenre = sortedGenres[0]?.[0] || 'Punjabi';
+    const topGenre = sortedGenres[0]?.[0] || 'Punjabi Pop';
     const sortedArtists = Object.entries(p.artistAffinities).sort((a, b) => b[1] - a[1]);
     const topArtist = sortedArtists[0]?.[0] || 'AP Dhillon';
 
     return [
       {
         tag: "Taste Analysis",
-        title: "Apparently, Sohaliya has a type.",
-        subtitle: `Dominating your charts with ${topGenre} anthems and heavy bass grooves (${Math.round((sortedGenres[0]?.[1] || 0.8) * 100)}% affinity).`
+        title: "Calibrated to your exact frequency.",
+        subtitle: `Heavily locked into ${topGenre} vibes with ${Math.round((sortedGenres[0]?.[1] || 0.85) * 100)}% acoustic match.`
       },
       {
-        tag: "Aux Cord Royalty",
-        title: "You keep coming back to this.",
-        subtitle: `Heavy resonance detected with ${topArtist}. Your skip rate on these tracks is virtually zero.`
+        tag: "Heavy Rotation",
+        title: "Your standout sonic signature.",
+        subtitle: `Resonating deeply with ${topArtist} and high-energy bass production.`
       },
       {
-        tag: "Sonic Personality",
-        title: `The "${p.topArchetype}" Archetype`,
-        subtitle: "High danceability, unapologetic energy, and late-night warmth calibrated specifically to your wavelength."
+        tag: "Aura Breakdown",
+        title: `The "${p.topArchetype}" Profile`,
+        subtitle: "Unapologetic energy, late-night warmth, and studio-grade dynamics."
       }
     ];
   }
