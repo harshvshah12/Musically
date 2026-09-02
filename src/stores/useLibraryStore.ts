@@ -6,6 +6,7 @@ import { recommendationEngine } from '@/services/recommendationEngine';
 interface LibraryState {
   playlists: Playlist[];
   likedTrackIds: string[];
+  followedArtistIds: string[];
   customUploadedTracks: Track[];
   
   createPlaylist: (name: string, description: string, coverImage?: string, gradient?: string) => Playlist;
@@ -17,6 +18,9 @@ interface LibraryState {
   
   toggleLikeTrack: (track: Track) => boolean;
   isLiked: (trackId: string) => boolean;
+
+  toggleFollowArtist: (artistId: string) => boolean;
+  isFollowingArtist: (artistId: string) => boolean;
   
   addCustomUpload: (track: Track) => void;
   deleteCustomUpload: (trackId: string) => void;
@@ -27,6 +31,7 @@ interface LibraryState {
 
 const STORAGE_PLAYLISTS_KEY = 'musically_playlists_v1';
 const STORAGE_LIKES_KEY = 'musically_likes_v1';
+const STORAGE_FOLLOWS_KEY = 'musically_follows_v1';
 const STORAGE_UPLOADS_KEY = 'musically_uploads_v1';
 
 const saveToStorage = (key: string, data: unknown) => {
@@ -69,6 +74,21 @@ const loadInitialLikes = (): string[] => {
   return ["track-1", "track-2", "track-3", "track-5", "track-11"];
 };
 
+const loadInitialFollows = (): string[] => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = window.localStorage.getItem(STORAGE_FOLLOWS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('Could not load followed artists:', e);
+  }
+  return ["artist-1", "artist-2", "artist-3", "artist-5", "artist-20"];
+};
+
 const loadInitialUploads = (): Track[] => {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -87,6 +107,7 @@ const loadInitialUploads = (): Track[] => {
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   playlists: loadInitialPlaylists(),
   likedTrackIds: loadInitialLikes(),
+  followedArtistIds: loadInitialFollows(),
   customUploadedTracks: loadInitialUploads(),
 
   createPlaylist: (name: string, description: string, coverImage?: string, gradient?: string) => {
@@ -201,6 +222,20 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   isLiked: (trackId: string) => {
     const currentLikes = Array.isArray(get().likedTrackIds) ? get().likedTrackIds : [];
     return currentLikes.includes(trackId);
+  },
+
+  toggleFollowArtist: (artistId: string) => {
+    const current = Array.isArray(get().followedArtistIds) ? get().followedArtistIds : [];
+    const isFollowed = current.includes(artistId);
+    const updated = isFollowed ? current.filter((id) => id !== artistId) : [...current, artistId];
+    saveToStorage(STORAGE_FOLLOWS_KEY, updated);
+    set({ followedArtistIds: updated });
+    return !isFollowed;
+  },
+
+  isFollowingArtist: (artistId: string) => {
+    const current = Array.isArray(get().followedArtistIds) ? get().followedArtistIds : [];
+    return current.includes(artistId);
   },
 
   addCustomUpload: (track: Track) => {

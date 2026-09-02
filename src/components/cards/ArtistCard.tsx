@@ -1,18 +1,18 @@
 import React from 'react';
-import { Artist } from '../../types/music';
+import { Artist } from '@/types/music';
 import { Users } from 'lucide-react';
-import { useUIStore } from '../../stores/useUIStore';
+import { useUIStore } from '@/stores/useUIStore';
+import { ArtistAvatar } from '@/components/common/ArtistAvatar';
 
 interface ArtistCardProps {
   artist: Artist;
 }
 
 export const ArtistCard: React.FC<ArtistCardProps> = ({ artist }) => {
-  const { navigateTo, setSearchQuery } = useUIStore();
+  const { navigateTo } = useUIStore();
 
   const handleClick = () => {
-    setSearchQuery(artist.name);
-    navigateTo('search');
+    navigateTo('artist-detail', { artistId: artist.id });
   };
 
   return (
@@ -20,11 +20,13 @@ export const ArtistCard: React.FC<ArtistCardProps> = ({ artist }) => {
       onClick={handleClick}
       className="group flex flex-col items-center text-center p-4 rounded-3xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 hover:border-white/10 transition-all duration-300 cursor-pointer hover:-translate-y-1"
     >
-      <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden mb-3.5 shadow-xl border-2 border-white/10 group-hover:border-rose-500/50 transition-colors">
-        <img
-          src={artist.image}
-          alt={artist.name}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+      <div className="mb-3.5">
+        <ArtistAvatar
+          name={artist.name}
+          image={artist.image}
+          size="md"
+          isVerified={true}
+          className="group-hover:ring-2 group-hover:ring-rose-500/50 rounded-full transition-all"
         />
       </div>
 

@@ -21,8 +21,10 @@ type LibraryTab = 'playlists' | 'liked' | 'uploads' | 'artists';
 
 export const LibraryPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<LibraryTab>('playlists');
+  const [artistQuery, setArtistQuery] = useState('');
+  const [artistFilter, setArtistFilter] = useState<'all' | 'following'>('all');
   
-  const { playlists, likedTrackIds, customUploadedTracks, getAllTracks } = useLibraryStore();
+  const { playlists, likedTrackIds, followedArtistIds, customUploadedTracks, getAllTracks } = useLibraryStore();
   const { openCreatePlaylistModal, openUploadModal } = useUIStore();
   const { playTrack, toggleShuffle } = usePlayerStore();
 
@@ -30,6 +32,22 @@ export const LibraryPage: React.FC = () => {
   const likedTracks: Track[] = likedTrackIds
     .map((id: string) => allTracks.find((t: Track) => t.id === id))
     .filter((t: Track | undefined): t is Track => Boolean(t));
+
+  const filteredArtists = React.useMemo(() => {
+    return ARTISTS_DATA.filter((a: Artist) => {
+      if (artistFilter === 'following' && !followedArtistIds.includes(a.id)) {
+        return false;
+      }
+      if (!artistQuery.trim()) return true;
+      const q = artistQuery.toLowerCase().trim();
+      return (
+        a.name.toLowerCase().includes(q) ||
+        a.aliases?.some((al) => al.toLowerCase().includes(q)) ||
+        a.country?.toLowerCase().includes(q) ||
+        a.genres.some((g) => g.toLowerCase().includes(q))
+      );
+    });
+  }, [artistQuery, artistFilter, followedArtistIds]);
 
   const handlePlayLiked = () => {
     if (likedTracks.length > 0) {
@@ -212,10 +230,57 @@ export const LibraryPage: React.FC = () => {
 
       {/* Artists Tab */}
       {activeTab === 'artists' && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
-          {ARTISTS_DATA.map((artist: Artist) => (
-            <ArtistCard key={artist.id} artist={artist} />
-          ))}
+        <div className="space-y-6">
+          {/* Artist Search & Filter Controls */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white/[0.02] border border-white/5 p-3 rounded-2xl">
+            <div className="relative w-full sm:w-80">
+              <input
+                type="text"
+                value={artistQuery}
+                onChange={(e) => setArtistQuery(e.target.value)}
+                placeholder="Search artists, aliases, genres..."
+                className="w-full h-10 pl-9 pr-4 bg-white/5 border border-white/10 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-rose-500 transition-colors"
+              />
+              <Users className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            </div>
+
+            <div className="flex items-center gap-1.5 self-start sm:self-auto">
+              <button
+                onClick={() => setArtistFilter('all')}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                  artistFilter === 'all'
+                    ? 'bg-white text-black shadow-md'
+                    : 'bg-white/5 text-slate-300 hover:text-white border border-white/5'
+                }`}
+              >
+                All ({ARTISTS_DATA.length})
+              </button>
+              <button
+                onClick={() => setArtistFilter('following')}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                  artistFilter === 'following'
+                    ? 'bg-rose-500 text-white shadow-md shadow-rose-500/25'
+                    : 'bg-white/5 text-slate-300 hover:text-white border border-white/5'
+                }`}
+              >
+                Following ({followedArtistIds.length})
+              </button>
+            </div>
+          </div>
+
+          {filteredArtists.length === 0 ? (
+            <div className="py-16 text-center text-slate-500">
+              <Users className="w-10 h-10 mx-auto mb-2 opacity-30 text-rose-400" />
+              <p className="text-sm font-semibold text-slate-300">No artists found matching your search</p>
+              <p className="text-xs text-slate-500 mt-1">Try a different name, alias, or genre</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {filteredArtists.map((artist: Artist) => (
+                <ArtistCard key={artist.id} artist={artist} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

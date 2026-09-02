@@ -14,6 +14,7 @@ import { PlaylistDetailPage } from '@/pages/PlaylistDetailPage';
 import { TasteProfilePage } from '@/pages/TasteProfilePage';
 import { BirthdayPage } from '@/pages/BirthdayPage';
 import { NowPlayingPage } from '@/pages/NowPlayingPage';
+import { ArtistDetailPage } from '@/pages/ArtistDetailPage';
 
 // Modals & Easter Eggs
 import { CreatePlaylistModal } from '@/components/modals/CreatePlaylistModal';
@@ -44,6 +45,8 @@ export const App: React.FC = () => {
         return <LibraryPage />;
       case 'playlist-detail':
         return <PlaylistDetailPage />;
+      case 'artist-detail':
+        return <ArtistDetailPage />;
       case 'taste':
         return <TasteProfilePage />;
       case 'birthday':

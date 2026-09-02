@@ -41,6 +41,8 @@ export const SearchPage: React.FC = () => {
 
     const matchedArtists = ARTISTS_DATA.filter((a: Artist) =>
       a.name.toLowerCase().includes(query) ||
+      a.aliases?.some((al) => al.toLowerCase().includes(query)) ||
+      a.country?.toLowerCase().includes(query) ||
       a.genres.some((g: string) => g.toLowerCase().includes(query))
     );
 
