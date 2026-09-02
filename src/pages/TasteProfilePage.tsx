@@ -11,18 +11,19 @@ import {
   Heart,
   Share2,
   Download,
+  Copy,
   X
 } from 'lucide-react';
 import { recommendationEngine } from '@/services/recommendationEngine';
 import { UserTasteProfile } from '@/types/music';
 import { BIRTHDAY_CONFIG } from '@/config/birthday.config';
 import { useUIStore } from '@/stores/useUIStore';
-import { exportCardAsPng, shareCard } from '@/utils/cardExporter';
-import { TasteCard } from '@/components/taste/TasteCard';
+import { exportCardAsPng, shareCard, copyCardToClipboard } from '@/utils/cardExporter';
+import { TasteCard, TasteCardVariant } from '@/components/taste/TasteCard';
 
 export const TasteProfilePage: React.FC = () => {
   const [profile, setProfile] = useState<UserTasteProfile>(recommendationEngine.getProfile());
-  const [previewCard, setPreviewCard] = useState<'top-genres' | 'top-artists' | 'listening-stats' | 'mood-aura' | 'music-personality' | null>(null);
+  const [previewCard, setPreviewCard] = useState<TasteCardVariant | null>(null);
   const { showToast } = useUIStore();
 
   useEffect(() => {
@@ -96,18 +97,25 @@ export const TasteProfilePage: React.FC = () => {
         
         {/* Horizontal scrollable card carousel */}
         <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-none -mx-3 px-3">
-          {(['top-genres', 'top-artists', 'listening-stats', 'mood-aura', 'music-personality'] as const).map(variant => (
-            <div key={variant} className="snap-start shrink-0">
+          {([
+            { id: 'the-sonic-signature', label: 'The Sonic Signature' },
+            { id: 'heavy-rotation', label: 'Heavy Rotation' },
+            { id: 'listening-dna', label: 'Listening DNA' },
+            { id: 'the-aura', label: 'The Aura' },
+            { id: 'the-year-in-music', label: 'The Year in Sound' },
+          ] as const).map(({ id, label }) => (
+            <div key={id} className="snap-start shrink-0 flex flex-col items-center gap-2">
               {/* Mini preview card (~180px wide, proportional height) */}
               <div 
-                onClick={() => setPreviewCard(variant)}
-                className="w-[180px] h-[320px] rounded-2xl overflow-hidden cursor-pointer hover:ring-2 hover:ring-rose-500/50 transition-all hover:scale-[1.03] active:scale-[0.97] bg-black"
+                onClick={() => setPreviewCard(id)}
+                className="w-[180px] h-[320px] rounded-2xl overflow-hidden cursor-pointer hover:ring-2 hover:ring-rose-500/50 transition-all hover:scale-[1.03] active:scale-[0.97] bg-black shadow-xl"
               >
                 {/* Scaled-down version of the full card */}
                 <div className="w-[1080px] h-[1920px] origin-top-left pointer-events-none" style={{ transform: 'scale(0.16666)' }}>
-                  <TasteCard variant={variant} profile={profile} />
+                  <TasteCard variant={id} profile={profile} />
                 </div>
               </div>
+              <span className="text-[11px] font-mono font-medium text-slate-400 tracking-wide">{label}</span>
             </div>
           ))}
         </div>
@@ -338,21 +346,42 @@ export const TasteProfilePage: React.FC = () => {
             </div>
 
             {/* Actions */}
-            <div className="flex gap-3 w-full max-w-[280px]">
-              <button 
-                onClick={() => {
-                  const el = document.getElementById('taste-card-export');
-                  if (el) {
-                    exportCardAsPng(el, `4soha-${previewCard}`);
-                    showToast('Saved to camera roll! 📸');
-                  }
-                }}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
-              >
-                <Download className="w-4 h-4 text-rose-400" />
-                <span>Save Story</span>
-              </button>
-              
+            <div className="flex flex-col gap-2 w-full max-w-[280px]">
+              <div className="flex gap-2 w-full">
+                <button 
+                  onClick={() => {
+                    const el = document.getElementById('taste-card-export');
+                    if (el) {
+                      exportCardAsPng(el, `4soha-${previewCard}`);
+                      showToast('Saved to camera roll! 📸');
+                    }
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-rose-400" />
+                  <span>Download</span>
+                </button>
+                
+                <button 
+                  onClick={async () => {
+                    const el = document.getElementById('taste-card-export');
+                    if (el) {
+                      const copied = await copyCardToClipboard(el);
+                      if (copied) {
+                        showToast('Card copied to clipboard! 📋');
+                      } else {
+                        exportCardAsPng(el, `4soha-${previewCard}`);
+                        showToast('Saved PNG to device! 📸');
+                      }
+                    }
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
+                >
+                  <Copy className="w-4 h-4 text-purple-400" />
+                  <span>Copy</span>
+                </button>
+              </div>
+
               <button 
                 onClick={() => {
                   const el = document.getElementById('taste-card-export');
@@ -361,10 +390,10 @@ export const TasteProfilePage: React.FC = () => {
                     showToast('Sharing story card... 🚀');
                   }
                 }}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white text-xs font-bold shadow-lg shadow-rose-500/25 transition-all active:scale-95 cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white text-xs font-bold shadow-lg shadow-rose-500/25 transition-all active:scale-95 cursor-pointer"
               >
                 <Share2 className="w-4 h-4" />
-                <span>Share Story</span>
+                <span>Share to Story</span>
               </button>
             </div>
           </div>
