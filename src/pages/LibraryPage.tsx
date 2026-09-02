@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Plus, 
   Heart, 
@@ -6,7 +6,10 @@ import {
   Play, 
   Shuffle, 
   Music, 
-  Users 
+  Users,
+  History,
+  Clock,
+  ArrowUpDown
 } from 'lucide-react';
 import { useLibraryStore } from '@/stores/useLibraryStore';
 import { useUIStore } from '@/stores/useUIStore';
@@ -17,23 +20,44 @@ import { ArtistCard } from '@/components/cards/ArtistCard';
 import { ARTISTS_DATA } from '@/data/musicCatalog';
 import { Track, Playlist, Artist } from '@/types/music';
 
-type LibraryTab = 'playlists' | 'liked' | 'uploads' | 'artists';
+type LibraryTab = 'playlists' | 'liked' | 'uploads' | 'artists' | 'history';
 
 export const LibraryPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<LibraryTab>('playlists');
   const [artistQuery, setArtistQuery] = useState('');
   const [artistFilter, setArtistFilter] = useState<'all' | 'following'>('all');
+  const [likedSort, setLikedSort] = useState<'recent' | 'artist' | 'title' | 'duration'>('recent');
   
   const { playlists, likedTrackIds, followedArtistIds, customUploadedTracks, getAllTracks } = useLibraryStore();
   const { openCreatePlaylistModal, openUploadModal } = useUIStore();
-  const { playTrack, toggleShuffle } = usePlayerStore();
+  const { playTrack, toggleShuffle, history } = usePlayerStore();
 
   const allTracks = getAllTracks();
-  const likedTracks: Track[] = likedTrackIds
-    .map((id: string) => allTracks.find((t: Track) => t.id === id))
-    .filter((t: Track | undefined): t is Track => Boolean(t));
 
-  const filteredArtists = React.useMemo(() => {
+  const rawLikedTracks: Track[] = useMemo(() => {
+    return likedTrackIds
+      .map((id: string) => allTracks.find((t: Track) => t.id === id))
+      .filter((t: Track | undefined): t is Track => Boolean(t));
+  }, [likedTrackIds, allTracks]);
+
+  const likedTracks: Track[] = useMemo(() => {
+    const list = [...rawLikedTracks];
+    if (likedSort === 'artist') {
+      list.sort((a, b) => a.artist.localeCompare(b.artist));
+    } else if (likedSort === 'title') {
+      list.sort((a, b) => a.title.localeCompare(b.title));
+    } else if (likedSort === 'duration') {
+      list.sort((a, b) => b.duration - a.duration);
+    }
+    return list;
+  }, [rawLikedTracks, likedSort]);
+
+  const totalLikedDuration = useMemo(() => {
+    const totalSec = rawLikedTracks.reduce((acc, t) => acc + t.duration, 0);
+    return Math.floor(totalSec / 60);
+  }, [rawLikedTracks]);
+
+  const filteredArtists = useMemo(() => {
     return ARTISTS_DATA.filter((a: Artist) => {
       if (artistFilter === 'following' && !followedArtistIds.includes(a.id)) {
         return false;
@@ -64,15 +88,14 @@ export const LibraryPage: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-8 pb-32">
-      
-      {/* Header & Tabs */}
+      {/* Header & CTAs */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="font-display font-extrabold text-3xl sm:text-4xl text-white">
             Your Library
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Personal playlists, saved tracks, uploaded gems, and favorite artists
+            Personal playlists, saved tracks, uploaded gems, favorite artists, and listening history
           </p>
         </div>
 
@@ -97,12 +120,13 @@ export const LibraryPage: React.FC = () => {
       </div>
 
       {/* Tabs Switcher */}
-      <div className="flex items-center gap-2 border-b border-white/5 pb-3">
+      <div className="flex items-center gap-2 border-b border-white/5 pb-3 overflow-x-auto scrollbar-none">
         {[
           { id: 'playlists', label: `Playlists (${playlists.length})`, icon: Music },
-          { id: 'liked', label: `Liked Songs (${likedTracks.length})`, icon: Heart },
+          { id: 'liked', label: `Liked Songs (${rawLikedTracks.length})`, icon: Heart },
           { id: 'uploads', label: `Custom Uploads (${customUploadedTracks.length})`, icon: Upload },
-          { id: 'artists', label: `Artists (${ARTISTS_DATA.length})`, icon: Users }
+          { id: 'artists', label: `Artists (${ARTISTS_DATA.length})`, icon: Users },
+          { id: 'history', label: `History (${history.length})`, icon: History },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -111,7 +135,7 @@ export const LibraryPage: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as LibraryTab)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
                 isActive
                   ? 'bg-white text-black shadow-md'
                   : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
@@ -152,7 +176,7 @@ export const LibraryPage: React.FC = () => {
       {/* Liked Songs Tab */}
       {activeTab === 'liked' && (
         <div className="space-y-6">
-          {likedTracks.length === 0 ? (
+          {rawLikedTracks.length === 0 ? (
             <div className="py-20 text-center text-slate-500">
               <Heart className="w-12 h-12 mx-auto mb-3 opacity-30 text-rose-500" />
               <p className="text-base font-bold text-slate-300">No liked songs yet</p>
@@ -168,11 +192,18 @@ export const LibraryPage: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="font-display font-extrabold text-2xl text-white">Liked Songs</h3>
-                    <p className="text-xs text-rose-300/80">{likedTracks.length} saved tracks for Sohaliya</p>
+                    <p className="text-xs text-rose-300/80 flex items-center gap-1.5 mt-0.5">
+                      <span>{rawLikedTracks.length} saved tracks</span>
+                      <span>•</span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{totalLikedDuration} mins</span>
+                      </span>
+                    </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     onClick={handlePlayLiked}
                     className="px-5 py-2.5 rounded-full bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-500/30 transition-all"
@@ -187,6 +218,28 @@ export const LibraryPage: React.FC = () => {
                   >
                     <Shuffle className="w-4 h-4" />
                   </button>
+                </div>
+              </div>
+
+              {/* Sorting Bar */}
+              <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+                <span className="font-mono">{likedTracks.length} tracks</span>
+                <div className="flex items-center gap-1.5">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="text-[11px] text-slate-500">Sort by:</span>
+                  {(['recent', 'artist', 'title', 'duration'] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setLikedSort(s)}
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-mono capitalize transition-all ${
+                        likedSort === s
+                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                          : 'bg-white/5 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -284,6 +337,32 @@ export const LibraryPage: React.FC = () => {
         </div>
       )}
 
+      {/* History Tab */}
+      {activeTab === 'history' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5">
+            <div>
+              <h3 className="font-display font-bold text-base text-white">Listening History</h3>
+              <p className="text-xs text-slate-400">Recently played tracks during your sessions</p>
+            </div>
+            <span className="text-xs font-mono text-slate-500">{history.length} tracks logged</span>
+          </div>
+
+          {history.length === 0 ? (
+            <div className="py-20 text-center text-slate-500">
+              <History className="w-10 h-10 mx-auto mb-2 opacity-30 text-slate-400" />
+              <p className="text-sm font-semibold text-slate-300">No listening history yet</p>
+              <p className="text-xs text-slate-500 mt-1">Tracks will appear here as you play them</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {history.map((track: Track, i: number) => (
+                <TrackCard key={`${track.id}-${i}`} track={track} index={i} showIndex contextQueue={history} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

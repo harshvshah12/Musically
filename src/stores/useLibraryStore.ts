@@ -10,6 +10,7 @@ interface LibraryState {
   customUploadedTracks: Track[];
   
   createPlaylist: (name: string, description: string, coverImage?: string, gradient?: string) => Playlist;
+  duplicatePlaylist: (id: string) => Playlist | undefined;
   editPlaylist: (id: string, updates: Partial<Playlist>) => void;
   deletePlaylist: (id: string) => void;
   addTrackToPlaylist: (playlistId: string, trackId: string) => void;
@@ -131,6 +132,28 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     });
 
     return newPlaylist;
+  },
+
+  duplicatePlaylist: (id: string) => {
+    const pl = get().playlists.find((p) => p.id === id);
+    if (!pl) return undefined;
+
+    const copy: Playlist = {
+      ...pl,
+      id: `pl-copy-${Date.now()}`,
+      name: `${pl.name} (Copy)`,
+      isCustom: true,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+
+    set((state) => {
+      const current = Array.isArray(state.playlists) ? state.playlists : PLAYLISTS_DATA;
+      const updated = [copy, ...current];
+      saveToStorage(STORAGE_PLAYLISTS_KEY, updated);
+      return { playlists: updated };
+    });
+
+    return copy;
   },
 
   editPlaylist: (id: string, updates: Partial<Playlist>) => {
