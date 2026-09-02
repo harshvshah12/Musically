@@ -22,6 +22,7 @@ import { AddToPlaylistModal } from '@/components/modals/AddToPlaylistModal';
 import { PhotoLightboxModal } from '@/components/modals/PhotoLightboxModal';
 import { CustomTrackUploadModal } from '@/components/modals/CustomTrackUploadModal';
 import { SecretEasterEggs } from '@/components/easter-eggs/SecretEasterEggs';
+import { NetworkStatusBanner } from '@/components/common/NetworkStatusBanner';
 import { extractColorFromImage, applyAccentToRoot } from '@/services/colorExtractor';
 
 export const App: React.FC = () => {
@@ -92,6 +93,7 @@ export const App: React.FC = () => {
       <MobileDrawer />
 
       {/* Global Modals & Easter Eggs */}
+      <NetworkStatusBanner />
       <CreatePlaylistModal />
       <AddToPlaylistModal />
       <PhotoLightboxModal />
