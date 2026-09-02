@@ -20,6 +20,7 @@ import { usePlayerStore } from '@/stores/usePlayerStore';
 import { useLibraryStore } from '@/stores/useLibraryStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { VisualizerCanvas } from './VisualizerCanvas';
+import { QueueDrawer } from './QueueDrawer';
 import { Track } from '@/types/music';
 
 export const PersistentPlayer: React.FC = () => {
@@ -373,6 +374,9 @@ export const PersistentPlayer: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Up Next Slide-over Queue Drawer */}
+      <QueueDrawer isOpen={isQueueOpen} onClose={() => setIsQueueOpen(false)} />
     </>
   );
 };

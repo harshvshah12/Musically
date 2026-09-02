@@ -1,5 +1,6 @@
 export type PlaybackCapability = 'FULL' | 'PREVIEW' | 'EXTERNAL' | 'UNAVAILABLE';
 export type PlaybackProviderType = 'HTML5_AUDIO' | 'YOUTUBE_IFRAME' | 'SPOTIFY_SDK' | 'CUSTOM_UPLOAD';
+export type PlaybackMachineState = 'IDLE' | 'LOADING' | 'BUFFERING' | 'PLAYING' | 'PAUSED' | 'ERROR' | 'ENDED';
 
 export interface PlaybackSource {
   provider: PlaybackProviderType;
