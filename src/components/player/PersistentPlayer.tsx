@@ -123,6 +123,10 @@ export const PersistentPlayer: React.FC = () => {
           <img
             src={currentTrack.albumArt}
             alt={currentTrack.title}
+            onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=300&q=80';
+            }}
             className="w-10 h-10 rounded-xl object-cover shadow border border-white/10 shrink-0"
           />
           <div className="flex flex-col min-w-0 flex-1">
@@ -170,6 +174,10 @@ export const PersistentPlayer: React.FC = () => {
             <img
               src={currentTrack.albumArt}
               alt={currentTrack.title}
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=300&q=80';
+              }}
               className={`w-13 h-13 rounded-xl object-cover shadow-lg border border-white/10 transition-transform group-hover:scale-105 ${
                 isPlaying ? 'ring-2 ring-rose-500/50 shadow-rose-500/20' : ''
               }`}

@@ -1,8 +1,7 @@
 /**
  * AudioEngine
- * Production-grade Web Audio API + HTML5 Audio Engine
- * Ensures 100% reliable audio playback without CORS-induced audio muting.
- * Includes native procedural synthesizer generator for Punjabi rhythm chords.
+ * Web Audio API + HTML5 Audio Engine
+ * Handles audio playback and procedural synth tones.
  */
 
 export class AudioEngine {
@@ -15,6 +14,13 @@ export class AudioEngine {
   private isSynthesizing = false;
   private synthInterval: number | null = null;
   private bassBoostEnabled = false;
+
+  private simulationMode = false;
+  private simBpm = 100;
+  private simEnergy = 0.7;
+  private simDanceability = 0.7;
+  private simIsPlaying = false;
+  private simPhase = 0;
 
   private onTimeUpdateCallbacks: Set<(currentTime: number, duration: number) => void> = new Set();
   private onEndedCallbacks: Set<() => void> = new Set();
@@ -159,7 +165,62 @@ export class AudioEngine {
     return this.bassBoostEnabled;
   }
 
+  public setSimulationMode(enabled: boolean): void {
+    this.simulationMode = enabled;
+  }
+
+  public setSimulationPlaying(playing: boolean): void {
+    this.simIsPlaying = playing;
+  }
+
+  public setTrackMetadata(bpm: number, energy: number, danceability: number): void {
+    this.simBpm = bpm || 100;
+    this.simEnergy = energy || 0.7;
+    this.simDanceability = danceability || 0.7;
+  }
+
+  private generateSimulatedFrequency(): Uint8Array {
+    const data = new Uint8Array(256);
+    if (!this.simIsPlaying) return data;
+    
+    const now = performance.now() / 1000;
+    const beatFreq = this.simBpm / 60;
+    const beat = Math.sin(now * beatFreq * Math.PI * 2);
+    const halfBeat = Math.sin(now * beatFreq * Math.PI);
+    
+    for (let i = 0; i < 256; i++) {
+      const freqFalloff = 1 - (i / 256) * 0.7; // bass heavier
+      const rhythmicPulse = (beat * 0.4 + halfBeat * 0.2 + 0.4) * this.simDanceability;
+      const randomVariation = 0.85 + Math.random() * 0.3;
+      const base = this.simEnergy * freqFalloff * rhythmicPulse * randomVariation;
+      data[i] = Math.min(255, Math.max(0, Math.floor(base * 200)));
+    }
+    
+    return data;
+  }
+
+  private generateSimulatedWaveform(): Uint8Array {
+    const data = new Uint8Array(256);
+    if (!this.simIsPlaying) {
+      data.fill(128);
+      return data;
+    }
+
+    const now = performance.now() / 1000;
+    const beatFreq = this.simBpm / 60;
+    this.simPhase += 0.05;
+
+    for (let i = 0; i < 256; i++) {
+      const sine = Math.sin(this.simPhase + i * 0.1) * 30 * this.simEnergy;
+      const noise = (Math.random() - 0.5) * 10 * this.simDanceability;
+      const beatIntensity = (Math.sin(now * beatFreq * Math.PI * 2) * 0.5 + 0.5) * 20;
+      data[i] = Math.min(255, Math.max(0, Math.floor(128 + sine + noise + beatIntensity)));
+    }
+    return data;
+  }
+
   public getFrequencyData(): Uint8Array {
+    if (this.simulationMode) return this.generateSimulatedFrequency();
     if (!this.analyserNode) {
       return new Uint8Array(64).fill(12);
     }
@@ -169,6 +230,7 @@ export class AudioEngine {
   }
 
   public getWaveformData(): Uint8Array {
+    if (this.simulationMode) return this.generateSimulatedWaveform();
     if (!this.analyserNode) {
       return new Uint8Array(64).fill(128);
     }

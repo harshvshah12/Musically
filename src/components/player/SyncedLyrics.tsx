@@ -62,15 +62,24 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({
     );
   }
 
-  if (!verifiedLyrics || verifiedLyrics.syncType === 'UNAVAILABLE' || verifiedLyrics.lines.length === 0) {
+  if (verifiedLyrics === null) {
+    return (
+      <div className={`flex flex-col items-center justify-center p-8 text-center space-y-3 ${className}`}>
+        <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-rose-500 animate-spin" />
+        <p className="text-sm text-slate-400">Loading lyrics...</p>
+      </div>
+    );
+  }
+
+  if (verifiedLyrics.syncType === 'UNAVAILABLE' || verifiedLyrics.lines.length === 0) {
     return (
       <div className={`flex flex-col items-center justify-center p-8 text-center space-y-3 ${className}`}>
         <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400">
           <AlertCircle className="w-6 h-6 text-rose-400" />
         </div>
-        <h4 className="font-display font-bold text-base text-white">Lyrics Unavailable</h4>
+        <h4 className="font-display font-bold text-base text-white">Lyrics not available for this track</h4>
         <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
-          {verifiedLyrics?.notes || "Synchronized lyrics aren't available for this recording."}
+          {verifiedLyrics.notes || "Synchronized lyrics aren't available for this recording."}
         </p>
       </div>
     );
@@ -81,18 +90,13 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({
       {/* Header Metadata Pill */}
       <div className="flex items-center justify-between px-2 pb-3 mb-2 border-b border-white/5 shrink-0">
         <div className="flex items-center gap-2">
-          <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-semibold">
-            <Sparkles className="w-3 h-3 animate-spin-slow" />
-            <span>Studio Synchronized</span>
+          <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold">
+            <CheckCircle2 className="w-3 h-3" />
+            <span>Verified Source</span>
           </div>
           <span className="text-[10px] font-mono text-slate-400">
             {verifiedLyrics.lines.length} lines
           </span>
-        </div>
-
-        <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-          <span>Verified Master</span>
         </div>
       </div>
 
@@ -122,17 +126,20 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({
         className="flex-1 overflow-y-auto space-y-5 px-3 py-12 scroll-smooth scrollbar-none"
       >
         {verifiedLyrics.lines.map((line, idx) => {
-          const isActive = idx === activeLyricIndex;
-          const isPast = idx < activeLyricIndex;
-          const isUpcoming = idx > activeLyricIndex;
+          const isUnsynced = verifiedLyrics.syncType === 'UNSYNCED';
+          const isActive = isUnsynced ? true : idx === activeLyricIndex;
+          const isPast = isUnsynced ? false : idx < activeLyricIndex;
+          const isUpcoming = isUnsynced ? false : idx > activeLyricIndex;
 
           return (
             <div
               key={line.id}
               ref={el => { lineRefs.current[idx] = el; }}
-              onClick={() => handleLineClick(line)}
-              className={`group cursor-pointer transition-all duration-300 rounded-xl px-3 py-2 ${
-                isActive
+              onClick={() => !isUnsynced && handleLineClick(line)}
+              className={`group transition-all duration-300 rounded-xl px-3 py-2 ${
+                isUnsynced ? 'cursor-default' : 'cursor-pointer'
+              } ${
+                isActive && !isUnsynced
                   ? 'scale-[1.02] transform-gpu'
                   : 'hover:bg-white/[0.03]'
               }`}
@@ -144,7 +151,7 @@ export const SyncedLyrics: React.FC<SyncedLyricsProps> = ({
                     : 'text-sm sm:text-base font-bold'
                 } ${
                   isActive
-                    ? 'text-white drop-shadow-[0_0_20px_rgba(244,63,94,0.6)]'
+                    ? 'text-white' + (!isUnsynced ? ' drop-shadow-[0_0_20px_rgba(244,63,94,0.6)]' : '')
                     : isPast
                     ? 'text-slate-500/60 blur-[0.4px] hover:blur-none hover:text-slate-300'
                     : isUpcoming

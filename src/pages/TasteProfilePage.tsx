@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Sparkles, 
   BrainCircuit, 
@@ -7,15 +8,21 @@ import {
   RotateCcw, 
   Compass,
   CheckCircle2,
-  Heart
+  Heart,
+  Share2,
+  Download,
+  X
 } from 'lucide-react';
 import { recommendationEngine } from '@/services/recommendationEngine';
 import { UserTasteProfile } from '@/types/music';
 import { BIRTHDAY_CONFIG } from '@/config/birthday.config';
 import { useUIStore } from '@/stores/useUIStore';
+import { exportCardAsPng, shareCard } from '@/utils/cardExporter';
+import { TasteCard } from '@/components/taste/TasteCard';
 
 export const TasteProfilePage: React.FC = () => {
   const [profile, setProfile] = useState<UserTasteProfile>(recommendationEngine.getProfile());
+  const [previewCard, setPreviewCard] = useState<'top-genres' | 'top-artists' | 'listening-stats' | 'mood-aura' | 'music-personality' | null>(null);
   const { showToast } = useUIStore();
 
   useEffect(() => {
@@ -74,6 +81,35 @@ export const TasteProfilePage: React.FC = () => {
               <span>{profile.totalPlays} interactions logged</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Share Your Taste - Instagram Story Cards */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display font-bold text-xl text-white flex items-center gap-2">
+            <Share2 className="w-5 h-5 text-rose-400" />
+            Share Your Taste
+          </h2>
+          <span className="text-xs text-slate-400">Tap to preview • Download for Instagram</span>
+        </div>
+        
+        {/* Horizontal scrollable card carousel */}
+        <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-none -mx-3 px-3">
+          {(['top-genres', 'top-artists', 'listening-stats', 'mood-aura', 'music-personality'] as const).map(variant => (
+            <div key={variant} className="snap-start shrink-0">
+              {/* Mini preview card (~180px wide, proportional height) */}
+              <div 
+                onClick={() => setPreviewCard(variant)}
+                className="w-[180px] h-[320px] rounded-2xl overflow-hidden cursor-pointer hover:ring-2 hover:ring-rose-500/50 transition-all hover:scale-[1.03] active:scale-[0.97] bg-black"
+              >
+                {/* Scaled-down version of the full card */}
+                <div className="w-[1080px] h-[1920px] origin-top-left pointer-events-none" style={{ transform: 'scale(0.16666)' }}>
+                  <TasteCard variant={variant} profile={profile} />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -269,6 +305,80 @@ export const TasteProfilePage: React.FC = () => {
           ))}
         </div>
       </section>
+
+      {/* Full Screen Card Preview Modal */}
+      {previewCard && typeof document !== 'undefined' && createPortal(
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl"
+          onClick={() => setPreviewCard(null)}
+        >
+          <div 
+            className="relative flex flex-col items-center gap-4 max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close Button */}
+            <div className="w-full flex justify-end">
+              <button 
+                onClick={() => setPreviewCard(null)}
+                className="p-2 text-white/70 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Clean Scaled On-Screen Card Preview */}
+            <div className="w-[280px] h-[498px] rounded-2xl overflow-hidden bg-black shadow-2xl relative border border-white/10 shrink-0">
+              <div 
+                className="absolute top-0 left-0 w-[1080px] h-[1920px] origin-top-left pointer-events-none"
+                style={{ transform: 'scale(0.25925)' }}
+              >
+                <TasteCard variant={previewCard} profile={profile} />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 w-full max-w-[280px]">
+              <button 
+                onClick={() => {
+                  const el = document.getElementById('taste-card-export');
+                  if (el) {
+                    exportCardAsPng(el, `4soha-${previewCard}`);
+                    showToast('Saved to camera roll! 📸');
+                  }
+                }}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-rose-400" />
+                <span>Save Story</span>
+              </button>
+              
+              <button 
+                onClick={() => {
+                  const el = document.getElementById('taste-card-export');
+                  if (el) {
+                    shareCard(el, `4soha-${previewCard}`);
+                    showToast('Sharing story card... 🚀');
+                  }
+                }}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white text-xs font-bold shadow-lg shadow-rose-500/25 transition-all active:scale-95 cursor-pointer"
+              >
+                <Share2 className="w-4 h-4" />
+                <span>Share Story</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Off-screen Pristine 1080x1920 Card for High-Res PNG Export */}
+          <div 
+            id="taste-card-export" 
+            className="fixed -left-[9999px] top-0 w-[1080px] h-[1920px] pointer-events-none overflow-hidden"
+          >
+            <TasteCard variant={previewCard} profile={profile} />
+          </div>
+        </div>,
+        document.body
+      )}
 
     </div>
   );

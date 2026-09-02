@@ -63,7 +63,7 @@ export const Sidebar: React.FC = () => {
             {!isSidebarCollapsed && (
               <div className="overflow-hidden">
                 <h1 className="font-display font-extrabold text-base tracking-wider text-white uppercase group-hover:text-rose-400 transition-colors truncate">
-                  Sohaliya
+                  4SOHA
                 </h1>
                 <p className="text-[10px] tracking-widest text-slate-400 font-medium uppercase -mt-0.5 flex items-center gap-1.5">
                   <span>Soundtrack</span>

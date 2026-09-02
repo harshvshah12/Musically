@@ -5,6 +5,8 @@ import { playbackManager } from '@/services/playbackManager';
 import { lyricsSyncEngine } from '@/services/lyricsSyncEngine';
 import { extractColorFromImage, applyAccentToRoot } from '@/services/colorExtractor';
 import { recommendationEngine } from '@/services/recommendationEngine';
+import { lyricsProvider } from '@/services/lyricsProvider';
+import { audioEngine } from '@/services/audioEngine';
 
 interface PlayerState {
   currentTrack: Track | null;
@@ -66,6 +68,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
   });
 
   playbackManager.onPlayStateChange((isPlaying) => {
+    audioEngine.setSimulationPlaying(isPlaying);
     set({ isPlaying });
   });
 
@@ -87,7 +90,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
   });
 
   const initialTrack = TRACKS_DATA[0];
-  const initialLyrics = initialTrack ? lyricsSyncEngine.parseLrcLyrics(initialTrack.lyrics, initialTrack) : null;
+  const initialLyrics = null;
 
   return {
     currentTrack: initialTrack,
@@ -122,17 +125,21 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       }
 
       const queueToSet = newQueue || state.queue;
-      const parsedLyrics = lyricsSyncEngine.parseLrcLyrics(track.lyrics, track);
 
       set({
         currentTrack: track,
         queue: queueToSet,
         currentTime: 0,
         duration: track.duration,
-        verifiedLyrics: parsedLyrics,
+        verifiedLyrics: null,
         activeLyricIndex: 0,
         activeProvider: track.playbackSource.provider || 'YOUTUBE_IFRAME',
         history: state.currentTrack ? [state.currentTrack, ...state.history.slice(0, 20)] : state.history
+      });
+
+      // Fetch real lyrics asynchronously
+      lyricsProvider.fetchLyrics(track.title, track.artist, track.duration, track.id).then(lyrics => {
+        set({ verifiedLyrics: lyrics, activeLyricIndex: -1 });
       });
 
       // Update ambient accent color
@@ -142,6 +149,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
 
       // Record recommendation signal
       recommendationEngine.recordInteraction(track, 'play');
+
+      if (track.playbackSource.provider === 'YOUTUBE_IFRAME') {
+        audioEngine.setSimulationMode(true);
+        audioEngine.setTrackMetadata(
+          track.bpm,
+          track.acousticFeatures.energy,
+          track.acousticFeatures.danceability
+        );
+      } else {
+        audioEngine.setSimulationMode(false);
+      }
 
       // Load & Play via unified PlaybackManager
       await playbackManager.playTrack(track);

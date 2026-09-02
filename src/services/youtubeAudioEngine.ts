@@ -1,7 +1,7 @@
 /**
  * YouTubeAudioEngine
- * Production-grade official YouTube IFrame API player wrapper.
- * Provides 100% legitimate, full-length Punjabi song playback directly from official label channels.
+ * YouTube IFrame API player wrapper.
+ * Provides audio playback via YouTube streams.
  */
 
 declare global {

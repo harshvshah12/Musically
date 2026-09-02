@@ -58,7 +58,7 @@ export const MobileDrawer: React.FC = () => {
             </div>
             <div>
               <h2 className="font-display font-extrabold text-sm tracking-wider text-white uppercase">
-                {BIRTHDAY_CONFIG.recipient.name}
+                4SOHA
               </h2>
               <p className="text-[9px] tracking-widest text-rose-300 font-medium uppercase">
                 Soundtrack

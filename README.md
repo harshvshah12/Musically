@@ -1,6 +1,6 @@
 # Musically — Next-Generation Web Audio Streaming Platform
 
-A high-performance, production-grade music streaming platform and interactive audio suite engineered with **React 19**, **TypeScript**, **Tailwind CSS v4**, the **Web Audio API**, and an $O(\log N)$ **precision-synchronized lyrics engine**.
+A high-performance music streaming platform and interactive audio suite built with **React 19**, **TypeScript**, **Tailwind CSS v4**, the **Web Audio API**, and an $O(\log N)$ **synchronized lyrics engine**.
 
 ---
 

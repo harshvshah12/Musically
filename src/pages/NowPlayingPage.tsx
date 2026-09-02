@@ -103,21 +103,15 @@ export const NowPlayingPage: React.FC = () => {
 
         <div className="flex flex-col items-center">
           <span className="text-[10px] font-mono tracking-widest uppercase text-rose-400 font-bold">
-            NOW PLAYING ON SOHALIYA'S SOUNDTRACK
+            NOW PLAYING ON 4SOHA
           </span>
           <span className="text-xs font-semibold text-slate-300 mt-0.5">
             {currentTrack.album}
           </span>
         </div>
 
-        {/* Playback Capability Badge */}
+        {/* Provider Toggle */}
         <div className="flex items-center gap-2">
-          <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>FULL SONG</span>
-          </div>
-
-          {/* Provider Toggle */}
           <button
             onClick={() => {
               const next: PlaybackProviderType = activeProvider === 'YOUTUBE_IFRAME' ? 'HTML5_AUDIO' : 'YOUTUBE_IFRAME';
@@ -134,7 +128,7 @@ export const NowPlayingPage: React.FC = () => {
             ) : (
               <>
                 <Radio className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Direct Master</span>
+                <span>Direct Audio</span>
               </>
             )}
           </button>
@@ -164,6 +158,10 @@ export const NowPlayingPage: React.FC = () => {
               <img
                 src={currentTrack.albumArt}
                 alt={currentTrack.title}
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=600&q=80';
+                }}
                 className="w-full h-full object-cover"
               />
             </div>

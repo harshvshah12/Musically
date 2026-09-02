@@ -2,8 +2,8 @@ import { Track, VerifiedLyrics, TimestampedLyricLine } from '@/types/music';
 
 /**
  * LyricsSyncEngine
- * Production-grade synchronization engine with O(log N) binary search lookup,
- * confidence scoring verification, offset calibration, and seek-resilient state.
+ * Synchronization engine with binary search lookup,
+ * offset calibration, and seek-resilient state.
  */
 export class LyricsSyncEngine {
   private static instance: LyricsSyncEngine;
@@ -27,6 +27,7 @@ export class LyricsSyncEngine {
     offsetMs: number = 0
   ): VerifiedLyrics {
     const cacheKey = track.playbackSource.isrc || track.id;
+    this.cache.delete(cacheKey); // clear stale lyrics from previous session
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey)!;
     }
