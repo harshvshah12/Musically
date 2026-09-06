@@ -60,6 +60,17 @@ export class PlaybackManager {
         this.onPlayStateChangeCallbacks.forEach(cb => cb(isPlaying));
       }
     });
+
+    youtubeAudioEngine.onError(async (err) => {
+      console.warn('[PlaybackManager] YouTube playback error encountered:', err);
+      if (this.currentTrack) {
+        console.info('[PlaybackManager] Activating AudioEngine fallback for:', this.currentTrack.title);
+        this.activeProvider = 'HTML5_AUDIO';
+        const url = this.currentTrack.playbackSource.streamUrl || this.currentTrack.audioSrc || '';
+        await audioEngine.loadAndPlay(url, this.currentTrack.duration);
+        this.onPlayStateChangeCallbacks.forEach((cb) => cb(true));
+      }
+    });
   }
 
   public async playTrack(track: Track, forceProvider?: PlaybackProviderType): Promise<void> {
@@ -87,7 +98,7 @@ export class PlaybackManager {
       await youtubeAudioEngine.loadAndPlay(track.playbackSource.youtubeVideoId);
     } else {
       const url = track.playbackSource.streamUrl || track.audioSrc;
-      await audioEngine.loadAndPlay(url);
+      await audioEngine.loadAndPlay(url, track.duration);
     }
   }
 

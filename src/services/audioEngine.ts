@@ -1,7 +1,7 @@
 /**
  * AudioEngine
  * Web Audio API + HTML5 Audio Engine
- * Handles audio playback and procedural synth tones.
+ * Handles audio playback, Web Audio synthesis, and real-time audio visualization.
  */
 
 export class AudioEngine {
@@ -13,6 +13,9 @@ export class AudioEngine {
   
   private isSynthesizing = false;
   private synthInterval: number | null = null;
+  private playbackTimer: number | null = null;
+  private virtualCurrentTime = 0;
+  private virtualDuration = 180;
   private bassBoostEnabled = false;
 
   private simulationMode = false;
@@ -68,32 +71,48 @@ export class AudioEngine {
 
   private setupEventListeners(): void {
     this.audio.addEventListener('timeupdate', () => {
-      const current = this.audio.currentTime;
-      const dur = this.audio.duration || 0;
-      this.onTimeUpdateCallbacks.forEach(cb => cb(current, dur));
+      if (!this.isSynthesizing) {
+        const current = this.audio.currentTime;
+        const dur = this.audio.duration || 0;
+        this.onTimeUpdateCallbacks.forEach(cb => cb(current, dur));
+      }
     });
 
     this.audio.addEventListener('ended', () => {
-      this.onEndedCallbacks.forEach(cb => cb());
+      if (!this.isSynthesizing) {
+        this.onEndedCallbacks.forEach(cb => cb());
+      }
     });
 
     this.audio.addEventListener('play', () => {
-      this.onPlayStateChangeCallbacks.forEach(cb => cb(true));
+      if (!this.isSynthesizing) {
+        this.onPlayStateChangeCallbacks.forEach(cb => cb(true));
+      }
     });
 
     this.audio.addEventListener('pause', () => {
-      this.onPlayStateChangeCallbacks.forEach(cb => cb(false));
+      if (!this.isSynthesizing) {
+        this.onPlayStateChangeCallbacks.forEach(cb => cb(false));
+      }
     });
 
     this.audio.addEventListener('error', (e) => {
-      console.warn('Audio playback stream notice, engaging procedural ambient Punjabi synthesizer fallback:', e);
-      this.startProceduralSynthesizer();
+      console.warn('[AudioEngine] Audio playback stream notice, engaging procedural synthesizer fallback:', e);
+      this.startProceduralSynthesizer(this.virtualDuration);
     });
   }
 
-  public async loadAndPlay(url: string): Promise<void> {
+  public async loadAndPlay(url: string, durationSec?: number): Promise<void> {
     this.stopProceduralSynthesizer();
     this.initAudioContext();
+    if (durationSec && durationSec > 0) {
+      this.virtualDuration = durationSec;
+    }
+
+    if (!url) {
+      this.startProceduralSynthesizer(this.virtualDuration);
+      return;
+    }
 
     try {
       if (this.audio.src !== url) {
@@ -105,8 +124,8 @@ export class AudioEngine {
         await playPromise;
       }
     } catch (err) {
-      console.warn('HTML5 play fallback to procedural synthesizer:', err);
-      this.startProceduralSynthesizer();
+      console.warn('[AudioEngine] HTML5 play fallback to procedural synthesizer:', err);
+      this.startProceduralSynthesizer(this.virtualDuration);
     }
   }
 
@@ -114,32 +133,37 @@ export class AudioEngine {
     this.initAudioContext();
 
     if (this.isSynthesizing) {
-      this.startProceduralSynthesizer();
-      this.onPlayStateChangeCallbacks.forEach(cb => cb(true));
+      this.startProceduralSynthesizer(this.virtualDuration);
       return;
     }
 
     try {
+      if (!this.audio.src || this.audio.src === window.location.href) {
+        this.startProceduralSynthesizer(this.virtualDuration);
+        return;
+      }
       const playPromise = this.audio.play();
       if (playPromise !== undefined) {
         await playPromise;
       }
     } catch {
-      this.startProceduralSynthesizer();
+      this.startProceduralSynthesizer(this.virtualDuration);
     }
   }
 
   public pause(): void {
     if (this.isSynthesizing) {
       this.stopProceduralSynthesizer();
-      this.onPlayStateChangeCallbacks.forEach(cb => cb(false));
     } else {
       this.audio.pause();
     }
   }
 
   public seek(seconds: number): void {
-    if (!this.isSynthesizing && isFinite(seconds)) {
+    if (this.isSynthesizing) {
+      this.virtualCurrentTime = Math.max(0, Math.min(seconds, this.virtualDuration));
+      this.onTimeUpdateCallbacks.forEach(cb => cb(this.virtualCurrentTime, this.virtualDuration));
+    } else if (isFinite(seconds)) {
       this.audio.currentTime = Math.max(0, Math.min(seconds, this.audio.duration || seconds));
     }
   }
@@ -181,7 +205,7 @@ export class AudioEngine {
 
   private generateSimulatedFrequency(): Uint8Array {
     const data = new Uint8Array(256);
-    if (!this.simIsPlaying) return data;
+    if (!this.simIsPlaying && !this.isSynthesizing) return data;
     
     const now = performance.now() / 1000;
     const beatFreq = this.simBpm / 60;
@@ -201,7 +225,7 @@ export class AudioEngine {
 
   private generateSimulatedWaveform(): Uint8Array {
     const data = new Uint8Array(256);
-    if (!this.simIsPlaying) {
+    if (!this.simIsPlaying && !this.isSynthesizing) {
       data.fill(128);
       return data;
     }
@@ -220,7 +244,7 @@ export class AudioEngine {
   }
 
   public getFrequencyData(): Uint8Array {
-    if (this.simulationMode) return this.generateSimulatedFrequency();
+    if (this.simulationMode || this.isSynthesizing) return this.generateSimulatedFrequency();
     if (!this.analyserNode) {
       return new Uint8Array(64).fill(12);
     }
@@ -230,7 +254,7 @@ export class AudioEngine {
   }
 
   public getWaveformData(): Uint8Array {
-    if (this.simulationMode) return this.generateSimulatedWaveform();
+    if (this.simulationMode || this.isSynthesizing) return this.generateSimulatedWaveform();
     if (!this.analyserNode) {
       return new Uint8Array(64).fill(128);
     }
@@ -243,12 +267,15 @@ export class AudioEngine {
    * Procedural Punjabi Bass & Chords Synthesizer
    * Produces actual audible harmonic chords and rhythmic dhol beat pulses
    */
-  private startProceduralSynthesizer(): void {
+  public startProceduralSynthesizer(durationSec?: number): void {
     this.stopProceduralSynthesizer();
     this.initAudioContext();
-    if (!this.audioCtx) return;
+    if (durationSec && durationSec > 0) {
+      this.virtualDuration = durationSec;
+    }
 
     this.isSynthesizing = true;
+    this.simIsPlaying = true;
     const notes = [
       [220.00, 261.63, 329.63], // A Minor
       [174.61, 220.00, 261.63], // F Major
@@ -302,15 +329,44 @@ export class AudioEngine {
 
     playRhythm();
     this.synthInterval = window.setInterval(playRhythm, 900);
+
+    // Active playback timer: advances time smoothly and triggers lyrics / progress bar
+    if (this.playbackTimer) clearInterval(this.playbackTimer);
+    this.playbackTimer = window.setInterval(() => {
+      if (!this.isSynthesizing) return;
+      this.virtualCurrentTime += 0.2;
+      if (this.virtualCurrentTime >= this.virtualDuration) {
+        this.virtualCurrentTime = 0;
+        this.stopProceduralSynthesizer();
+        this.onEndedCallbacks.forEach(cb => cb());
+      } else {
+        this.onTimeUpdateCallbacks.forEach(cb => cb(this.virtualCurrentTime, this.virtualDuration));
+      }
+    }, 200);
+
     this.onPlayStateChangeCallbacks.forEach(cb => cb(true));
   }
 
-  private stopProceduralSynthesizer(): void {
+  public stopProceduralSynthesizer(): void {
     this.isSynthesizing = false;
+    this.simIsPlaying = false;
     if (this.synthInterval) {
       clearInterval(this.synthInterval);
       this.synthInterval = null;
     }
+    if (this.playbackTimer) {
+      clearInterval(this.playbackTimer);
+      this.playbackTimer = null;
+    }
+    this.onPlayStateChangeCallbacks.forEach(cb => cb(false));
+  }
+
+  public getCurrentTime(): number {
+    return this.isSynthesizing ? this.virtualCurrentTime : (this.audio.currentTime || 0);
+  }
+
+  public getDuration(): number {
+    return this.isSynthesizing ? this.virtualDuration : (this.audio.duration || 0);
   }
 
   public onTimeUpdate(cb: (currentTime: number, duration: number) => void): () => void {

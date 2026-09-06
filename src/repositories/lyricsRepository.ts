@@ -7,6 +7,7 @@ const LYRICS_CACHE_PREFIX = '4soha_lyrics_';
 
 class LyricsRepository {
   private static instance: LyricsRepository;
+  private hasSupabaseLyricsTable = true;
 
   private constructor() {}
 
@@ -33,17 +34,20 @@ class LyricsRepository {
       // Ignore cache read failure
     }
 
-    // 2. Check Supabase lyrics table
+    // 2. Check Supabase lyrics table (if available)
     const supabase = getSupabaseClient();
-    if (isSupabaseConfigured() && supabase) {
+    if (isSupabaseConfigured() && supabase && this.hasSupabaseLyricsTable) {
       try {
         const { data, error } = await supabase
           .from('lyrics')
           .select('*')
           .eq('track_id', trackId)
-          .single();
+          .maybeSingle();
 
-        if (!error && data) {
+        if (error) {
+          // Table does not exist yet or is inaccessible
+          this.hasSupabaseLyricsTable = false;
+        } else if (data) {
           const verified: VerifiedLyrics = {
             trackId,
             title,
@@ -72,7 +76,7 @@ class LyricsRepository {
       await set(cacheKey, lyrics).catch(() => {});
 
       // Sync back to Supabase if connected
-      if (isSupabaseConfigured() && supabase) {
+      if (isSupabaseConfigured() && supabase && this.hasSupabaseLyricsTable) {
         try {
           await supabase.from('lyrics').upsert({
             track_id: trackId,

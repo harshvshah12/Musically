@@ -1,7 +1,7 @@
 /**
  * YouTubeAudioEngine
  * YouTube IFrame API player wrapper.
- * Provides audio playback via YouTube streams.
+ * Provides resilient audio playback via YouTube streams.
  */
 
 declare global {
@@ -16,11 +16,13 @@ export class YouTubeAudioEngine {
   private player: any = null;
   private isReady = false;
   private currentVideoId: string | null = null;
+  private pendingVideoId: string | null = null;
   private progressInterval: number | null = null;
 
   private onTimeUpdateCallbacks: Set<(currentTime: number, duration: number) => void> = new Set();
   private onEndedCallbacks: Set<() => void> = new Set();
   private onPlayStateChangeCallbacks: Set<(isPlaying: boolean) => void> = new Set();
+  private onErrorCallbacks: Set<(error: any) => void> = new Set();
   private readyPromise: Promise<void>;
   private resolveReady: () => void = () => {};
 
@@ -28,6 +30,17 @@ export class YouTubeAudioEngine {
     this.readyPromise = new Promise((resolve) => {
       this.resolveReady = resolve;
     });
+
+    // Safety timeout: if YouTube API doesn't resolve in 3 seconds, unblock readyPromise
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        if (!this.isReady) {
+          this.isReady = true;
+          this.resolveReady();
+        }
+      }, 3000);
+    }
+
     this.initYouTubeAPI();
   }
 
@@ -59,7 +72,7 @@ export class YouTubeAudioEngine {
       tag.id = 'youtube-iframe-api-script';
       tag.src = 'https://www.youtube.com/iframe_api';
       const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
     }
   }
 
@@ -68,73 +81,96 @@ export class YouTubeAudioEngine {
     if (!host) {
       host = document.createElement('div');
       host.id = 'youtube-audio-player-host';
+      // In Chromium browsers, iframes must be rendered with non-zero dimensions
+      // inside the viewport to satisfy W3C Media Autoplay requirements.
       host.style.position = 'fixed';
-      host.style.top = '-9999px';
-      host.style.left = '-9999px';
-      host.style.width = '1px';
-      host.style.height = '1px';
-      host.style.opacity = '0';
+      host.style.bottom = '0px';
+      host.style.right = '0px';
+      host.style.width = '240px';
+      host.style.height = '160px';
+      host.style.zIndex = '-999';
+      host.style.opacity = '0.001';
       host.style.pointerEvents = 'none';
       document.body.appendChild(host);
     }
 
-    const playerContainer = document.createElement('div');
-    playerContainer.id = 'youtube-player-element';
-    host.appendChild(playerContainer);
+    let playerContainer = document.getElementById('youtube-player-element');
+    if (!playerContainer) {
+      playerContainer = document.createElement('div');
+      playerContainer.id = 'youtube-player-element';
+      host.appendChild(playerContainer);
+    }
 
-    this.player = new window.YT.Player('youtube-player-element', {
-      height: '1',
-      width: '1',
-      playerVars: {
-        playsinline: 1,
-        controls: 0,
-        disablekb: 1,
-        enablejsapi: 1,
-        origin: window.location.origin,
-        rel: 0
-      },
-      events: {
-        onReady: () => {
-          this.isReady = true;
-          this.resolveReady();
+    try {
+      this.player = new window.YT.Player('youtube-player-element', {
+        height: '160',
+        width: '240',
+        host: 'https://www.youtube.com',
+        playerVars: {
+          autoplay: 1,
+          playsinline: 1,
+          controls: 0,
+          disablekb: 1,
+          enablejsapi: 1,
+          rel: 0,
+          modestbranding: 1,
+          iv_load_policy: 3
         },
-        onStateChange: (event: any) => {
-          this.handleStateChange(event.data);
-        },
-        onError: (e: any) => {
-          console.warn('YouTube audio engine error event:', e);
+        events: {
+          onReady: () => {
+            this.isReady = true;
+            this.resolveReady();
+            if (this.pendingVideoId) {
+              const vid = this.pendingVideoId;
+              this.pendingVideoId = null;
+              this.loadAndPlay(vid);
+            }
+          },
+          onStateChange: (event: any) => {
+            this.handleStateChange(event.data);
+          },
+          onError: (e: any) => {
+            console.warn('[YouTubeAudioEngine] Player error event:', e);
+            this.onErrorCallbacks.forEach((cb) => cb(e));
+          }
         }
-      }
-    });
+      });
+    } catch (err) {
+      console.warn('[YouTubeAudioEngine] Could not instantiate YT.Player:', err);
+      this.isReady = true;
+      this.resolveReady();
+    }
   }
 
   private handleStateChange(state: number): void {
     // YT.PlayerState: UNSTARTED (-1), ENDED (0), PLAYING (1), PAUSED (2), BUFFERING (3), CUED (5)
     if (state === 1) { // PLAYING
       this.startProgressTracking();
-      this.onPlayStateChangeCallbacks.forEach(cb => cb(true));
+      this.onPlayStateChangeCallbacks.forEach((cb) => cb(true));
     } else if (state === 2) { // PAUSED
       this.stopProgressTracking();
-      this.onPlayStateChangeCallbacks.forEach(cb => cb(false));
+      this.onPlayStateChangeCallbacks.forEach((cb) => cb(false));
     } else if (state === 0) { // ENDED
       this.stopProgressTracking();
-      this.onEndedCallbacks.forEach(cb => cb());
+      this.onEndedCallbacks.forEach((cb) => cb());
+    } else if (state === 3) { // BUFFERING
+      this.startProgressTracking();
     }
   }
 
   private startProgressTracking(): void {
     this.stopProgressTracking();
     this.progressInterval = window.setInterval(() => {
-      if (this.player && this.player.getCurrentTime && this.player.getDuration) {
+      if (this.player && typeof this.player.getCurrentTime === 'function' && typeof this.player.getDuration === 'function') {
         try {
           const current = this.player.getCurrentTime() || 0;
           const duration = this.player.getDuration() || 0;
-          this.onTimeUpdateCallbacks.forEach(cb => cb(current, duration));
+          this.onTimeUpdateCallbacks.forEach((cb) => cb(current, duration));
         } catch {
           // ignore tracking error
         }
       }
-    }, 100);
+    }, 150);
   }
 
   private stopProgressTracking(): void {
@@ -145,57 +181,97 @@ export class YouTubeAudioEngine {
   }
 
   public async loadAndPlay(videoId: string): Promise<void> {
-    await this.readyPromise;
-    if (!this.player) return;
-
     this.currentVideoId = videoId;
+
+    if (!this.isReady || !this.player) {
+      this.pendingVideoId = videoId;
+      await this.readyPromise;
+    }
+
+    if (!this.player) {
+      console.warn('[YouTubeAudioEngine] Player not available for videoId:', videoId);
+      this.onErrorCallbacks.forEach((cb) => cb({ data: -1, message: 'Player unavailable' }));
+      return;
+    }
+
     try {
-      this.player.loadVideoById({
-        videoId: videoId,
-        startSeconds: 0
-      });
-      this.player.playVideo();
+      if (typeof this.player.loadVideoById === 'function') {
+        this.player.loadVideoById({
+          videoId: videoId,
+          startSeconds: 0
+        });
+        this.player.playVideo();
+      } else if (typeof this.player.cueVideoById === 'function') {
+        this.player.cueVideoById(videoId);
+        this.player.playVideo();
+      }
     } catch (e) {
-      console.warn('Could not load YouTube video:', e);
+      console.warn('[YouTubeAudioEngine] Could not load YouTube video:', e);
+      this.onErrorCallbacks.forEach((cb) => cb(e));
     }
   }
 
   public async play(): Promise<void> {
-    await this.readyPromise;
-    if (this.player && this.player.playVideo) {
-      this.player.playVideo();
+    if (this.player && typeof this.player.playVideo === 'function') {
+      try {
+        this.player.playVideo();
+      } catch (err) {
+        console.warn('[YouTubeAudioEngine] playVideo error:', err);
+      }
+    } else if (this.currentVideoId) {
+      await this.loadAndPlay(this.currentVideoId);
     }
   }
 
   public pause(): void {
-    if (this.player && this.player.pauseVideo) {
-      this.player.pauseVideo();
+    if (this.player && typeof this.player.pauseVideo === 'function') {
+      try {
+        this.player.pauseVideo();
+      } catch (err) {
+        console.warn('[YouTubeAudioEngine] pauseVideo error:', err);
+      }
     }
   }
 
   public seek(seconds: number): void {
-    if (this.player && this.player.seekTo) {
-      this.player.seekTo(seconds, true);
+    if (this.player && typeof this.player.seekTo === 'function') {
+      try {
+        this.player.seekTo(seconds, true);
+      } catch (err) {
+        console.warn('[YouTubeAudioEngine] seekTo error:', err);
+      }
     }
   }
 
   public setVolume(volume: number): void {
     // YouTube volume is 0 - 100
-    if (this.player && this.player.setVolume) {
-      this.player.setVolume(Math.round(Math.max(0, Math.min(1, volume)) * 100));
+    if (this.player && typeof this.player.setVolume === 'function') {
+      try {
+        this.player.setVolume(Math.round(Math.max(0, Math.min(1, volume)) * 100));
+      } catch {
+        // ignore
+      }
     }
   }
 
   public getCurrentTime(): number {
-    if (this.player && this.player.getCurrentTime) {
-      return this.player.getCurrentTime() || 0;
+    if (this.player && typeof this.player.getCurrentTime === 'function') {
+      try {
+        return this.player.getCurrentTime() || 0;
+      } catch {
+        return 0;
+      }
     }
     return 0;
   }
 
   public getDuration(): number {
-    if (this.player && this.player.getDuration) {
-      return this.player.getDuration() || 0;
+    if (this.player && typeof this.player.getDuration === 'function') {
+      try {
+        return this.player.getDuration() || 0;
+      } catch {
+        return 0;
+      }
     }
     return 0;
   }
@@ -213,6 +289,11 @@ export class YouTubeAudioEngine {
   public onPlayStateChange(cb: (isPlaying: boolean) => void): () => void {
     this.onPlayStateChangeCallbacks.add(cb);
     return () => this.onPlayStateChangeCallbacks.delete(cb);
+  }
+
+  public onError(cb: (error: any) => void): () => void {
+    this.onErrorCallbacks.add(cb);
+    return () => this.onErrorCallbacks.delete(cb);
   }
 }
 
