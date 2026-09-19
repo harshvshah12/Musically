@@ -1,33 +1,64 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useUIStore } from '@/stores/useUIStore';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { useLibraryStore } from '@/stores/useLibraryStore';
 import { ARTISTS_DATA, TRACKS_DATA } from '@/data/musicCatalog';
+import { artistRepository } from '@/repositories/artistRepository';
+import { trackRepository } from '@/repositories/trackRepository';
 import { ArtistAvatar } from '@/components/common/ArtistAvatar';
 import { TrackCard } from '@/components/cards/TrackCard';
 import { ArtistCard } from '@/components/cards/ArtistCard';
 import { Play, Shuffle, Heart, Users, Globe, ArrowLeft, Music, Disc3 } from 'lucide-react';
+import { Artist, Track } from '@/types/music';
 
 export const ArtistDetailPage: React.FC = () => {
   const { activeArtistId, navigateTo } = useUIStore();
   const { playTrack } = usePlayerStore();
   const { followedArtistIds, toggleFollowArtist } = useLibraryStore();
 
-  const artist = useMemo(() => {
-    return ARTISTS_DATA.find((a) => a.id === activeArtistId) || ARTISTS_DATA[0];
+  const [dynamicArtist, setDynamicArtist] = useState<Artist | null>(null);
+  const [dynamicTracks, setDynamicTracks] = useState<Track[] | null>(null);
+
+  useEffect(() => {
+    if (!activeArtistId) return;
+    const local = ARTISTS_DATA.find((a) => a.id === activeArtistId);
+    if (local) {
+      setDynamicArtist(local);
+    } else {
+      artistRepository.getArtistById(activeArtistId).then((res) => {
+        if (res) setDynamicArtist(res);
+      });
+    }
+
+    trackRepository.getTracksByArtist(activeArtistId).then((tracks) => {
+      if (tracks.length > 0) {
+        setDynamicTracks(tracks);
+      }
+    });
   }, [activeArtistId]);
+
+  const artist: Artist = useMemo(() => {
+    return (
+      dynamicArtist ||
+      ARTISTS_DATA.find((a) => a.id === activeArtistId) ||
+      ARTISTS_DATA[0]
+    );
+  }, [dynamicArtist, activeArtistId]);
 
   const isFollowed = followedArtistIds.includes(artist.id);
 
   // All tracks by this artist
   const artistTracks = useMemo(() => {
+    if (dynamicTracks && dynamicTracks.length > 0) {
+      return dynamicTracks;
+    }
     return TRACKS_DATA.filter(
       (t) =>
         t.artistId === artist.id ||
         t.artist.toLowerCase().includes(artist.name.toLowerCase()) ||
         t.artists?.some((a) => a.artistId === artist.id)
     );
-  }, [artist]);
+  }, [dynamicTracks, artist]);
 
   // Top 5 popular tracks
   const popularTracks = useMemo(() => {

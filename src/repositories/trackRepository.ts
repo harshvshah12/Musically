@@ -2,6 +2,8 @@ import { Track } from '@/types/music';
 import { TRACKS_DATA } from '@/data/musicCatalog';
 import { get, set } from 'idb-keyval';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabaseClient';
+import { spotifyAuthService } from '@/services/spotifyAuthService';
+import { spotifyApiService } from '@/services/spotifyApiService';
 
 const TRACKS_CACHE_KEY = '4soha_tracks_catalog_v2';
 
@@ -94,13 +96,49 @@ class TrackRepository {
 
   async getTrackById(id: string): Promise<Track | undefined> {
     const tracks = await this.getAllTracks();
-    return tracks.find((t) => t.id === id);
+    const local = tracks.find((t) => t.id === id);
+    if (local) return local;
+
+    // If Spotify is authenticated or ID looks like a Spotify track ID
+    if (spotifyAuthService.isAuthenticated() || id.startsWith('spotify:track:') || id.length === 22) {
+      try {
+        const spotifyTrack = await spotifyApiService.getTrack(id);
+        if (spotifyTrack) {
+          // Cache in memory
+          this.inMemoryCache.push(spotifyTrack);
+          return spotifyTrack;
+        }
+      } catch {
+        // Fallback
+      }
+    }
+
+    return undefined;
   }
 
   async searchTracks(query: string): Promise<Track[]> {
-    const tracks = await this.getAllTracks();
-    if (!query.trim()) return tracks;
+    if (!query.trim()) return this.getAllTracks();
 
+    // 1. If Spotify is authenticated, search Spotify Web API first
+    if (spotifyAuthService.isAuthenticated()) {
+      try {
+        const { tracks: spotifyTracks } = await spotifyApiService.search(query, ['track'], 25);
+        if (spotifyTracks.length > 0) {
+          // Cache retrieved tracks in memory for immediate playback
+          spotifyTracks.forEach((st) => {
+            if (!this.inMemoryCache.some((c) => c.id === st.id)) {
+              this.inMemoryCache.push(st);
+            }
+          });
+          return spotifyTracks;
+        }
+      } catch (err) {
+        console.warn('[TrackRepository] Spotify search failed, falling back to local catalog:', err);
+      }
+    }
+
+    // 2. Fallback to local catalog
+    const tracks = await this.getAllTracks();
     const q = query.toLowerCase().trim();
     return tracks.filter(
       (t) =>
@@ -115,6 +153,24 @@ class TrackRepository {
   }
 
   async getTracksByArtist(artistId: string): Promise<Track[]> {
+    // 1. If Spotify is authenticated, fetch artist top tracks from Spotify
+    if (spotifyAuthService.isAuthenticated() || artistId.length === 22) {
+      try {
+        const spotifyTracks = await spotifyApiService.getArtistTopTracks(artistId);
+        if (spotifyTracks.length > 0) {
+          spotifyTracks.forEach((st) => {
+            if (!this.inMemoryCache.some((c) => c.id === st.id)) {
+              this.inMemoryCache.push(st);
+            }
+          });
+          return spotifyTracks;
+        }
+      } catch {
+        // Fallback
+      }
+    }
+
+    // 2. Fallback to local catalog
     const tracks = await this.getAllTracks();
     return tracks.filter(
       (t) =>

@@ -2,6 +2,8 @@ import { Artist } from '@/types/music';
 import { ARTISTS_DATA } from '@/data/musicCatalog';
 import { get, set } from 'idb-keyval';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabaseClient';
+import { spotifyAuthService } from '@/services/spotifyAuthService';
+import { spotifyApiService } from '@/services/spotifyApiService';
 
 const ARTISTS_CACHE_KEY = '4soha_artists_catalog_v2';
 
@@ -73,13 +75,44 @@ class ArtistRepository {
 
   async getArtistById(id: string): Promise<Artist | undefined> {
     const artists = await this.getAllArtists();
-    return artists.find((a) => a.id === id);
+    const local = artists.find((a) => a.id === id);
+    if (local) return local;
+
+    if (id.startsWith('spotify:artist:') || id.length === 22) {
+      try {
+        const spotifyArtist = await spotifyApiService.getArtist(id);
+        if (spotifyArtist) {
+          this.inMemoryCache.push(spotifyArtist);
+          return spotifyArtist;
+        }
+      } catch {
+        // Fallback
+      }
+    }
+
+    return undefined;
   }
 
   async searchArtists(query: string): Promise<Artist[]> {
-    const artists = await this.getAllArtists();
-    if (!query.trim()) return artists;
+    if (!query.trim()) return this.getAllArtists();
 
+    try {
+      if (spotifyAuthService.isAuthenticated()) {
+        const { artists: spotifyArtists } = await spotifyApiService.search(query, ['artist'], 12);
+        if (spotifyArtists.length > 0) {
+          spotifyArtists.forEach((sa) => {
+            if (!this.inMemoryCache.some((c) => c.id === sa.id)) {
+              this.inMemoryCache.push(sa);
+            }
+          });
+          return spotifyArtists;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+
+    const artists = await this.getAllArtists();
     const q = query.toLowerCase().trim();
     return artists.filter((a) => {
       const nameMatch = a.name.toLowerCase().includes(q);

@@ -19,6 +19,7 @@ import { useLibraryStore } from '@/stores/useLibraryStore';
 import { usePlayerStore } from '@/stores/usePlayerStore';
 import { TrackCard } from '@/components/cards/TrackCard';
 import { Track, Playlist } from '@/types/music';
+import { spotifyApiService } from '@/services/spotifyApiService';
 
 export const PlaylistDetailPage: React.FC = () => {
   const { activePlaylistId, navigateTo, showToast } = useUIStore();
@@ -31,6 +32,19 @@ export const PlaylistDetailPage: React.FC = () => {
     removeTrackFromPlaylist,
   } = useLibraryStore();
   const { playTrack, toggleShuffle } = usePlayerStore();
+
+  const [dynamicTracks, setDynamicTracks] = React.useState<Track[] | null>(null);
+
+  React.useEffect(() => {
+    if (!activePlaylistId) return;
+    if (activePlaylistId.startsWith('spotify:playlist:') || activePlaylistId.length === 22) {
+      spotifyApiService.getPlaylist(activePlaylistId).then((res) => {
+        if (res && res.tracks.length > 0) {
+          setDynamicTracks(res.tracks);
+        }
+      });
+    }
+  }, [activePlaylistId]);
 
   const playlist = activePlaylistId
     ? playlists.find((pl: Playlist) => pl.id === activePlaylistId)
@@ -51,9 +65,11 @@ export const PlaylistDetailPage: React.FC = () => {
     );
   }
 
-  const playlistTracks: Track[] = playlist.trackIds
-    .map((id: string) => allTracks.find((t: Track) => t.id === id))
-    .filter((t: Track | undefined): t is Track => Boolean(t));
+  const playlistTracks: Track[] = dynamicTracks && dynamicTracks.length > 0
+    ? dynamicTracks
+    : playlist.trackIds
+        .map((id: string) => allTracks.find((t: Track) => t.id === id))
+        .filter((t: Track | undefined): t is Track => Boolean(t));
 
   const totalDurationSec = playlistTracks.reduce((acc: number, t: Track) => acc + t.duration, 0);
   const totalMin = Math.floor(totalDurationSec / 60);

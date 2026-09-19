@@ -24,10 +24,38 @@ import { CustomTrackUploadModal } from '@/components/modals/CustomTrackUploadMod
 import { SecretEasterEggs } from '@/components/easter-eggs/SecretEasterEggs';
 import { NetworkStatusBanner } from '@/components/common/NetworkStatusBanner';
 import { extractColorFromImage, applyAccentToRoot } from '@/services/colorExtractor';
+import { spotifyAuthService } from '@/services/spotifyAuthService';
+import { spotifyPlaybackEngine } from '@/services/spotifyPlaybackEngine';
+import { useLibraryStore } from '@/stores/useLibraryStore';
 
 export const App: React.FC = () => {
-  const { activeRoute } = useUIStore();
+  const { activeRoute, showToast } = useUIStore();
   const { currentTrack } = usePlayerStore();
+  const { syncWithSpotify } = useLibraryStore();
+
+  useEffect(() => {
+    // 1. Check for Spotify OAuth PKCE callback parameters in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
+
+    if (code && state) {
+      spotifyAuthService.handleCallback(code, state).then((success) => {
+        if (success) {
+          showToast('Spotify Connected! Ready to stream 🎧');
+          spotifyPlaybackEngine.initializePlayer();
+          syncWithSpotify();
+        } else {
+          showToast('Spotify connection could not be completed.');
+        }
+        const cleanPath = window.location.pathname === '/callback' ? '/' : window.location.pathname;
+        window.history.replaceState({}, document.title, cleanPath);
+      });
+    } else if (spotifyAuthService.isAuthenticated()) {
+      spotifyPlaybackEngine.initializePlayer();
+      syncWithSpotify();
+    }
+  }, [showToast, syncWithSpotify]);
 
   useEffect(() => {
     // Initial color accent setup

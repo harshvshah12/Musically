@@ -1,15 +1,17 @@
 import { Track, PlaybackProviderType, PlaybackCapability } from '@/types/music';
 import { audioEngine } from './audioEngine';
 import { youtubeAudioEngine } from './youtubeAudioEngine';
+import { spotifyPlaybackEngine } from './spotifyPlaybackEngine';
 
 export class PlaybackManager {
   private static instance: PlaybackManager;
   private currentTrack: Track | null = null;
-  private activeProvider: PlaybackProviderType = 'YOUTUBE_IFRAME';
+  private activeProvider: PlaybackProviderType = 'SPOTIFY_SDK';
   
   private onTimeUpdateCallbacks: Set<(currentTime: number, duration: number) => void> = new Set();
   private onEndedCallbacks: Set<() => void> = new Set();
   private onPlayStateChangeCallbacks: Set<(isPlaying: boolean) => void> = new Set();
+  private onErrorCallbacks: Set<(errorMessage: string) => void> = new Set();
 
   private constructor() {
     this.setupListeners();
@@ -23,41 +25,65 @@ export class PlaybackManager {
   }
 
   private setupListeners(): void {
+    // Spotify Engine listeners
+    spotifyPlaybackEngine.onTimeUpdate((curr, dur) => {
+      if (this.activeProvider === 'SPOTIFY_SDK') {
+        this.onTimeUpdateCallbacks.forEach((cb) => cb(curr, dur));
+      }
+    });
+
+    spotifyPlaybackEngine.onEnded(() => {
+      if (this.activeProvider === 'SPOTIFY_SDK') {
+        this.onEndedCallbacks.forEach((cb) => cb());
+      }
+    });
+
+    spotifyPlaybackEngine.onPlayStateChange((isPlaying) => {
+      if (this.activeProvider === 'SPOTIFY_SDK') {
+        this.onPlayStateChangeCallbacks.forEach((cb) => cb(isPlaying));
+      }
+    });
+
+    spotifyPlaybackEngine.onError((err) => {
+      console.warn('[PlaybackManager] Spotify playback notice:', err);
+      this.onErrorCallbacks.forEach((cb) => cb(err));
+    });
+
     // HTML5 Engine listeners
     audioEngine.onTimeUpdate((curr, dur) => {
       if (this.activeProvider === 'HTML5_AUDIO' || this.activeProvider === 'CUSTOM_UPLOAD') {
-        this.onTimeUpdateCallbacks.forEach(cb => cb(curr, dur));
+        this.onTimeUpdateCallbacks.forEach((cb) => cb(curr, dur));
       }
     });
 
     audioEngine.onEnded(() => {
       if (this.activeProvider === 'HTML5_AUDIO' || this.activeProvider === 'CUSTOM_UPLOAD') {
-        this.onEndedCallbacks.forEach(cb => cb());
+        this.onEndedCallbacks.forEach((cb) => cb());
       }
     });
 
     audioEngine.onPlayStateChange((isPlaying) => {
       if (this.activeProvider === 'HTML5_AUDIO' || this.activeProvider === 'CUSTOM_UPLOAD') {
-        this.onPlayStateChangeCallbacks.forEach(cb => cb(isPlaying));
+        this.onPlayStateChangeCallbacks.forEach((cb) => cb(isPlaying));
       }
     });
 
     // YouTube Engine listeners
     youtubeAudioEngine.onTimeUpdate((curr, dur) => {
       if (this.activeProvider === 'YOUTUBE_IFRAME') {
-        this.onTimeUpdateCallbacks.forEach(cb => cb(curr, dur));
+        this.onTimeUpdateCallbacks.forEach((cb) => cb(curr, dur));
       }
     });
 
     youtubeAudioEngine.onEnded(() => {
       if (this.activeProvider === 'YOUTUBE_IFRAME') {
-        this.onEndedCallbacks.forEach(cb => cb());
+        this.onEndedCallbacks.forEach((cb) => cb());
       }
     });
 
     youtubeAudioEngine.onPlayStateChange((isPlaying) => {
       if (this.activeProvider === 'YOUTUBE_IFRAME') {
-        this.onPlayStateChangeCallbacks.forEach(cb => cb(isPlaying));
+        this.onPlayStateChangeCallbacks.forEach((cb) => cb(isPlaying));
       }
     });
 
@@ -74,19 +100,22 @@ export class PlaybackManager {
   }
 
   public async playTrack(track: Track, forceProvider?: PlaybackProviderType): Promise<void> {
-    const previousTrack = this.currentTrack;
     this.currentTrack = track;
 
     // Determine target provider
-    let targetProvider = forceProvider || track.playbackSource.provider || 'YOUTUBE_IFRAME';
-    
-    // If track has local upload or no youtubeVideoId, use HTML5
-    if (track.isLocalUpload || (!track.playbackSource.youtubeVideoId && track.playbackSource.streamUrl)) {
+    let targetProvider = forceProvider || track.playbackSource.provider || 'SPOTIFY_SDK';
+
+    // Prioritize Spotify Web Playback SDK if track has spotifyUri or provider is SPOTIFY_SDK
+    if (track.playbackSource.spotifyUri || targetProvider === 'SPOTIFY_SDK') {
+      targetProvider = 'SPOTIFY_SDK';
+    } else if (track.isLocalUpload || (!track.playbackSource.youtubeVideoId && track.playbackSource.streamUrl)) {
       targetProvider = 'HTML5_AUDIO';
     }
 
-    // Stop inactive provider
-    if (this.activeProvider === 'YOUTUBE_IFRAME' && targetProvider !== 'YOUTUBE_IFRAME') {
+    // Stop whichever provider was previously playing
+    if (this.activeProvider === 'SPOTIFY_SDK' && targetProvider !== 'SPOTIFY_SDK') {
+      await spotifyPlaybackEngine.pause();
+    } else if (this.activeProvider === 'YOUTUBE_IFRAME' && targetProvider !== 'YOUTUBE_IFRAME') {
       youtubeAudioEngine.pause();
     } else if (this.activeProvider === 'HTML5_AUDIO' && targetProvider !== 'HTML5_AUDIO') {
       audioEngine.pause();
@@ -94,7 +123,9 @@ export class PlaybackManager {
 
     this.activeProvider = targetProvider;
 
-    if (targetProvider === 'YOUTUBE_IFRAME' && track.playbackSource.youtubeVideoId) {
+    if (targetProvider === 'SPOTIFY_SDK' && track.playbackSource.spotifyUri) {
+      await spotifyPlaybackEngine.loadAndPlay(track.playbackSource.spotifyUri, track.duration);
+    } else if (targetProvider === 'YOUTUBE_IFRAME' && track.playbackSource.youtubeVideoId) {
       await youtubeAudioEngine.loadAndPlay(track.playbackSource.youtubeVideoId);
     } else {
       const url = track.playbackSource.streamUrl || track.audioSrc;
@@ -103,7 +134,9 @@ export class PlaybackManager {
   }
 
   public async resume(): Promise<void> {
-    if (this.activeProvider === 'YOUTUBE_IFRAME') {
+    if (this.activeProvider === 'SPOTIFY_SDK') {
+      await spotifyPlaybackEngine.resume();
+    } else if (this.activeProvider === 'YOUTUBE_IFRAME') {
       await youtubeAudioEngine.play();
     } else {
       await audioEngine.play();
@@ -111,7 +144,9 @@ export class PlaybackManager {
   }
 
   public pause(): void {
-    if (this.activeProvider === 'YOUTUBE_IFRAME') {
+    if (this.activeProvider === 'SPOTIFY_SDK') {
+      spotifyPlaybackEngine.pause();
+    } else if (this.activeProvider === 'YOUTUBE_IFRAME') {
       youtubeAudioEngine.pause();
     } else {
       audioEngine.pause();
@@ -119,7 +154,9 @@ export class PlaybackManager {
   }
 
   public seek(seconds: number): void {
-    if (this.activeProvider === 'YOUTUBE_IFRAME') {
+    if (this.activeProvider === 'SPOTIFY_SDK') {
+      spotifyPlaybackEngine.seek(seconds);
+    } else if (this.activeProvider === 'YOUTUBE_IFRAME') {
       youtubeAudioEngine.seek(seconds);
     } else {
       audioEngine.seek(seconds);
@@ -127,12 +164,18 @@ export class PlaybackManager {
   }
 
   public setVolume(vol: number): void {
+    spotifyPlaybackEngine.setVolume(vol);
     audioEngine.setVolume(vol);
     youtubeAudioEngine.setVolume(vol);
   }
 
   public setPlaybackRate(rate: number): void {
     audioEngine.setPlaybackRate(rate);
+  }
+
+  public onError(cb: (errorMessage: string) => void): () => void {
+    this.onErrorCallbacks.add(cb);
+    return () => this.onErrorCallbacks.delete(cb);
   }
 
   public getActiveProvider(): PlaybackProviderType {

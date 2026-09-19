@@ -2,6 +2,8 @@ import { Playlist } from '@/types/music';
 import { PLAYLISTS_DATA } from '@/data/musicCatalog';
 import { get, set } from 'idb-keyval';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabaseClient';
+import { spotifyAuthService } from '@/services/spotifyAuthService';
+import { spotifyApiService } from '@/services/spotifyApiService';
 
 const PLAYLISTS_CACHE_KEY = '4soha_playlists_v2';
 
@@ -69,6 +71,24 @@ class PlaylistRepository {
       }
     }
 
+    // 3. Check Spotify playlists if authenticated
+    try {
+      if (spotifyAuthService.isAuthenticated()) {
+        const spotifyPlaylists = await spotifyApiService.getUserPlaylists(20);
+        if (spotifyPlaylists.length > 0) {
+          const merged = [
+            ...spotifyPlaylists,
+            ...PLAYLISTS_DATA.filter((cp) => !spotifyPlaylists.some((sp) => sp.id === cp.id)),
+          ];
+          this.inMemoryCache = merged;
+          this.isLoaded = true;
+          return this.inMemoryCache;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+
     this.inMemoryCache = [...PLAYLISTS_DATA];
     this.isLoaded = true;
     await set(PLAYLISTS_CACHE_KEY, this.inMemoryCache).catch(() => {});
@@ -77,7 +97,28 @@ class PlaylistRepository {
 
   async getPlaylistById(id: string): Promise<Playlist | undefined> {
     const playlists = await this.getAllPlaylists();
-    return playlists.find((p) => p.id === id);
+    const local = playlists.find((p) => p.id === id);
+    if (local && local.trackIds.length > 0) return local;
+
+    // Check Spotify playlist details if needed
+    if (id.startsWith('spotify:playlist:') || id.length === 22 || (local && local.trackIds.length === 0)) {
+      try {
+        const res = await spotifyApiService.getPlaylist(id);
+        if (res) {
+          const idx = this.inMemoryCache.findIndex((p) => p.id === id);
+          if (idx >= 0) {
+            this.inMemoryCache[idx] = res.playlist;
+          } else {
+            this.inMemoryCache.push(res.playlist);
+          }
+          return res.playlist;
+        }
+      } catch {
+        // Fallback
+      }
+    }
+
+    return local;
   }
 
   async createPlaylist(name: string, description = '', coverImage = ''): Promise<Playlist> {

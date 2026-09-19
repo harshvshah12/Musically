@@ -7,6 +7,8 @@ import { TrackCard } from '@/components/cards/TrackCard';
 import { PlaylistCard } from '@/components/cards/PlaylistCard';
 import { ArtistCard } from '@/components/cards/ArtistCard';
 import { Track, Artist, Playlist } from '@/types/music';
+import { spotifyAuthService } from '@/services/spotifyAuthService';
+import { spotifyApiService } from '@/services/spotifyApiService';
 
 const BROWSE_GENRES = [
   { name: 'Punjabi Bangers', color: 'from-orange-500 to-amber-600', query: 'Punjabi' },
@@ -24,31 +26,75 @@ export const SearchPage: React.FC = () => {
   const { playlists, getAllTracks } = useLibraryStore();
 
   const allTracks = getAllTracks();
-  const query = searchQuery.trim().toLowerCase();
+  const query = searchQuery.trim();
+  const lowerQuery = query.toLowerCase();
+
+  const [spotifyResults, setSpotifyResults] = React.useState<{
+    tracks: Track[];
+    artists: Artist[];
+    playlists: Playlist[];
+  } | null>(null);
+
+  // Live Spotify Web API search with 250ms debounce
+  React.useEffect(() => {
+    if (!query) {
+      setSpotifyResults(null);
+      return;
+    }
+
+    let isMounted = true;
+    const timer = setTimeout(async () => {
+      try {
+        if (spotifyAuthService.isAuthenticated()) {
+          const results = await spotifyApiService.search(query, ['track', 'artist', 'playlist'], 20);
+          if (isMounted && results && (results.tracks.length > 0 || results.artists.length > 0 || results.playlists.length > 0)) {
+            setSpotifyResults(results);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('[SearchPage] Spotify search notice:', err);
+      }
+      if (isMounted) {
+        setSpotifyResults(null);
+      }
+    }, 250);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [query]);
 
   const searchResults = useMemo(() => {
     if (!query) {
       return { tracks: [], artists: [], playlists: [] };
     }
 
+    // If live Spotify results are available, present them
+    if (spotifyResults) {
+      return spotifyResults;
+    }
+
+    // Local fallback matching
     const matchedTracks = allTracks.filter((t: Track) => 
-      t.title.toLowerCase().includes(query) ||
-      t.artist.toLowerCase().includes(query) ||
-      t.genre.toLowerCase().includes(query) ||
-      t.mood.toLowerCase().includes(query) ||
-      (t.lyrics && t.lyrics.some((l: string) => l.toLowerCase().includes(query)))
+      t.title.toLowerCase().includes(lowerQuery) ||
+      t.artist.toLowerCase().includes(lowerQuery) ||
+      t.genre.toLowerCase().includes(lowerQuery) ||
+      t.mood.toLowerCase().includes(lowerQuery) ||
+      (t.lyrics && t.lyrics.some((l: string) => l.toLowerCase().includes(lowerQuery)))
     );
 
     const matchedArtists = ARTISTS_DATA.filter((a: Artist) =>
-      a.name.toLowerCase().includes(query) ||
-      a.aliases?.some((al) => al.toLowerCase().includes(query)) ||
-      a.country?.toLowerCase().includes(query) ||
-      a.genres.some((g: string) => g.toLowerCase().includes(query))
+      a.name.toLowerCase().includes(lowerQuery) ||
+      a.aliases?.some((al) => al.toLowerCase().includes(lowerQuery)) ||
+      a.country?.toLowerCase().includes(lowerQuery) ||
+      a.genres.some((g: string) => g.toLowerCase().includes(lowerQuery))
     );
 
     const matchedPlaylists = playlists.filter((p: Playlist) =>
-      p.name.toLowerCase().includes(query) ||
-      p.description.toLowerCase().includes(query)
+      p.name.toLowerCase().includes(lowerQuery) ||
+      p.description.toLowerCase().includes(lowerQuery)
     );
 
     return {
@@ -56,7 +102,7 @@ export const SearchPage: React.FC = () => {
       artists: matchedArtists,
       playlists: matchedPlaylists
     };
-  }, [query, allTracks, playlists]);
+  }, [query, lowerQuery, spotifyResults, allTracks, playlists]);
 
   const hasResults = searchResults.tracks.length > 0 || searchResults.artists.length > 0 || searchResults.playlists.length > 0;
 

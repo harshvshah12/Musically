@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { Playlist, Track } from '@/types/music';
 import { PLAYLISTS_DATA, TRACKS_DATA } from '@/data/musicCatalog';
 import { recommendationEngine } from '@/services/recommendationEngine';
+import { spotifyAuthService } from '@/services/spotifyAuthService';
+import { spotifyApiService } from '@/services/spotifyApiService';
 
 interface LibraryState {
   playlists: Playlist[];
@@ -26,6 +28,9 @@ interface LibraryState {
   addCustomUpload: (track: Track) => void;
   deleteCustomUpload: (trackId: string) => void;
   
+  spotifyTracks: Track[];
+  syncWithSpotify: () => Promise<void>;
+
   getPlaylistById: (id: string) => Playlist | undefined;
   getAllTracks: () => Track[];
 }
@@ -110,6 +115,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   likedTrackIds: loadInitialLikes(),
   followedArtistIds: loadInitialFollows(),
   customUploadedTracks: loadInitialUploads(),
+  spotifyTracks: [],
 
   createPlaylist: (name: string, description: string, coverImage?: string, gradient?: string) => {
     const newPlaylist: Playlist = {
@@ -284,8 +290,49 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     return current.find(pl => pl.id === id);
   },
 
+  syncWithSpotify: async () => {
+    try {
+      if (!spotifyAuthService.isAuthenticated()) return;
+
+      const [playlists, savedTracks] = await Promise.all([
+        spotifyApiService.getUserPlaylists(25),
+        spotifyApiService.getUserSavedTracks(50),
+      ]);
+
+      set((state) => {
+        const mergedTracks = [...state.spotifyTracks];
+        savedTracks.forEach((st) => {
+          if (!mergedTracks.some((t) => t.id === st.id)) {
+            mergedTracks.push(st);
+          }
+        });
+
+        // Merge saved track IDs into likedTrackIds
+        const newLikes = Array.from(new Set([...state.likedTrackIds, ...savedTracks.map((t) => t.id)]));
+        saveToStorage(STORAGE_LIKES_KEY, newLikes);
+
+        // Merge Spotify playlists
+        const currentPlaylists = Array.isArray(state.playlists) ? state.playlists : PLAYLISTS_DATA;
+        const mergedPlaylists = [
+          ...playlists,
+          ...currentPlaylists.filter((cp) => !playlists.some((sp) => sp.id === cp.id)),
+        ];
+        saveToStorage(STORAGE_PLAYLISTS_KEY, mergedPlaylists);
+
+        return {
+          playlists: mergedPlaylists,
+          likedTrackIds: newLikes,
+          spotifyTracks: mergedTracks,
+        };
+      });
+    } catch (err) {
+      console.warn('[useLibraryStore] Spotify sync notice:', err);
+    }
+  },
+
   getAllTracks: () => {
     const uploads = Array.isArray(get().customUploadedTracks) ? get().customUploadedTracks : [];
-    return [...TRACKS_DATA, ...uploads];
+    const spotify = Array.isArray(get().spotifyTracks) ? get().spotifyTracks : [];
+    return [...TRACKS_DATA, ...spotify, ...uploads];
   }
 }));

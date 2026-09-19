@@ -7,6 +7,7 @@ import { extractColorFromImage, applyAccentToRoot } from '@/services/colorExtrac
 import { recommendationEngine } from '@/services/recommendationEngine';
 import { lyricsRepository } from '@/repositories/lyricsRepository';
 import { audioEngine } from '@/services/audioEngine';
+import { useUIStore } from './useUIStore';
 
 const STORAGE_QUEUE_KEY = '4soha_player_queue_v2';
 
@@ -122,6 +123,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     });
   });
 
+  playbackManager.onError((errorMessage) => {
+    console.warn('[usePlayerStore] Playback manager error:', errorMessage);
+    set({ playbackState: 'ERROR' });
+    useUIStore.getState().showToast(`Playback notice: ${errorMessage}`);
+  });
+
   playbackManager.onEnded(() => {
     const { repeatMode, currentTrack, nextTrack, seekTo } = get();
     set({ playbackState: 'ENDED' });
@@ -217,12 +224,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       // Record recommendation signal
       recommendationEngine.recordInteraction(track, 'play');
 
-      if (track.playbackSource.provider === 'YOUTUBE_IFRAME') {
+      if (track.playbackSource.provider === 'YOUTUBE_IFRAME' || track.playbackSource.provider === 'SPOTIFY_SDK') {
         audioEngine.setSimulationMode(true);
         audioEngine.setTrackMetadata(
-          track.bpm,
-          track.acousticFeatures.energy,
-          track.acousticFeatures.danceability
+          track.bpm || 120,
+          track.acousticFeatures?.energy ?? 0.75,
+          track.acousticFeatures?.danceability ?? 0.75
         );
       } else {
         audioEngine.setSimulationMode(false);
