@@ -50,4 +50,23 @@ describe('SpotifyAuthService PKCE', () => {
     expect(spotifyAuthService.isAuthenticated()).toBe(false);
     expect(localStorage.getItem('spotify_access_token')).toBeNull();
   });
+
+  it('retrieves cached app token if available and not expired', async () => {
+    localStorage.setItem('spotify_app_token', 'cached_app_token_123');
+    localStorage.setItem('spotify_app_expires_at', (Date.now() + 60000).toString());
+
+    const token = await spotifyAuthService.getAccessToken();
+    expect(token).toBe('cached_app_token_123');
+  });
+
+  it('prioritizes user access token over app token when user is logged in', async () => {
+    localStorage.setItem('spotify_app_token', 'app_token_xyz');
+    localStorage.setItem('spotify_app_expires_at', (Date.now() + 60000).toString());
+
+    localStorage.setItem('spotify_access_token', 'user_token_abc');
+    localStorage.setItem('spotify_token_expires_at', (Date.now() + 60000).toString());
+
+    const token = await spotifyAuthService.getAccessToken();
+    expect(token).toBe('user_token_abc');
+  });
 });

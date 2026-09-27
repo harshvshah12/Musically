@@ -97,20 +97,18 @@ export class AudioEngine {
     });
 
     this.audio.addEventListener('error', (e) => {
-      console.warn('[AudioEngine] Audio playback stream notice, engaging procedural synthesizer fallback:', e);
-      this.startProceduralSynthesizer(this.virtualDuration);
+      console.warn('[AudioEngine] Audio playback stream notice:', e);
     });
   }
 
   public async loadAndPlay(url: string, durationSec?: number): Promise<void> {
-    this.stopProceduralSynthesizer();
+    this.stopPlayback();
     this.initAudioContext();
     if (durationSec && durationSec > 0) {
       this.virtualDuration = durationSec;
     }
 
     if (!url) {
-      this.startProceduralSynthesizer(this.virtualDuration);
       return;
     }
 
@@ -124,47 +122,37 @@ export class AudioEngine {
         await playPromise;
       }
     } catch (err) {
-      console.warn('[AudioEngine] HTML5 play fallback to procedural synthesizer:', err);
-      this.startProceduralSynthesizer(this.virtualDuration);
+      console.warn('[AudioEngine] HTML5 play notice:', err);
     }
   }
 
   public async play(): Promise<void> {
     this.initAudioContext();
-
-    if (this.isSynthesizing) {
-      this.startProceduralSynthesizer(this.virtualDuration);
-      return;
-    }
-
     try {
-      if (!this.audio.src || this.audio.src === window.location.href) {
-        this.startProceduralSynthesizer(this.virtualDuration);
-        return;
+      if (this.audio.src && this.audio.src !== window.location.href) {
+        const playPromise = this.audio.play();
+        if (playPromise !== undefined) {
+          await playPromise;
+        }
       }
-      const playPromise = this.audio.play();
-      if (playPromise !== undefined) {
-        await playPromise;
-      }
-    } catch {
-      this.startProceduralSynthesizer(this.virtualDuration);
+    } catch (e) {
+      console.warn('[AudioEngine] Play notice:', e);
     }
   }
 
   public pause(): void {
-    if (this.isSynthesizing) {
-      this.stopProceduralSynthesizer();
-    } else {
-      this.audio.pause();
-    }
+    this.audio.pause();
+    this.stopPlayback();
+    this.onPlayStateChangeCallbacks.forEach(cb => cb(false));
   }
 
   public seek(seconds: number): void {
-    if (this.isSynthesizing) {
+    if (isFinite(seconds)) {
       this.virtualCurrentTime = Math.max(0, Math.min(seconds, this.virtualDuration));
+      if (this.audio.src && this.audio.src !== window.location.href) {
+        this.audio.currentTime = Math.max(0, Math.min(seconds, this.audio.duration || seconds));
+      }
       this.onTimeUpdateCallbacks.forEach(cb => cb(this.virtualCurrentTime, this.virtualDuration));
-    } else if (isFinite(seconds)) {
-      this.audio.currentTime = Math.max(0, Math.min(seconds, this.audio.duration || seconds));
     }
   }
 
@@ -264,100 +252,45 @@ export class AudioEngine {
   }
 
   /**
-   * Procedural Punjabi Bass & Chords Synthesizer
-   * Produces actual audible harmonic chords and rhythmic dhol beat pulses
+   * Visualizer timing clock for 60fps spectrum animation.
+   * Produces zero audible synthesizer noise.
    */
-  public startProceduralSynthesizer(durationSec?: number): void {
-    this.stopProceduralSynthesizer();
-    this.initAudioContext();
+  public startVisualizerClock(durationSec?: number): void {
+    this.stopPlayback();
     if (durationSec && durationSec > 0) {
       this.virtualDuration = durationSec;
     }
 
     this.isSynthesizing = true;
     this.simIsPlaying = true;
-    const notes = [
-      [220.00, 261.63, 329.63], // A Minor
-      [174.61, 220.00, 261.63], // F Major
-      [261.63, 329.63, 392.00], // C Major
-      [196.00, 246.94, 293.66]  // G Major
-    ];
-    let step = 0;
 
-    const playRhythm = () => {
-      if (!this.audioCtx || !this.isSynthesizing) return;
-      const chord = notes[step % notes.length];
-      step++;
-
-      // Play Bass Kick
-      const bassOsc = this.audioCtx.createOscillator();
-      const bassGain = this.audioCtx.createGain();
-      bassOsc.type = 'triangle';
-      bassOsc.frequency.setValueAtTime(this.bassBoostEnabled ? 75 : 95, this.audioCtx.currentTime);
-      bassOsc.frequency.exponentialRampToValueAtTime(35, this.audioCtx.currentTime + 0.35);
-
-      bassGain.gain.setValueAtTime(0.3, this.audioCtx.currentTime);
-      bassGain.gain.exponentialRampToValueAtTime(0.001, this.audioCtx.currentTime + 0.35);
-
-      bassOsc.connect(bassGain);
-      if (this.analyserNode) bassGain.connect(this.analyserNode);
-
-      bassOsc.start();
-      bassOsc.stop(this.audioCtx.currentTime + 0.36);
-
-      // Play Harmonic Chords
-      chord.forEach((freq, idx) => {
-        if (!this.audioCtx) return;
-        const osc = this.audioCtx.createOscillator();
-        const gain = this.audioCtx.createGain();
-        
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq * 1.5, this.audioCtx.currentTime);
-
-        const delay = idx * 0.08;
-        gain.gain.setValueAtTime(0.001, this.audioCtx.currentTime + delay);
-        gain.gain.exponentialRampToValueAtTime(0.08, this.audioCtx.currentTime + delay + 0.1);
-        gain.gain.exponentialRampToValueAtTime(0.0001, this.audioCtx.currentTime + delay + 1.2);
-
-        osc.connect(gain);
-        if (this.analyserNode) gain.connect(this.analyserNode);
-
-        osc.start(this.audioCtx.currentTime + delay);
-        osc.stop(this.audioCtx.currentTime + delay + 1.3);
-      });
-    };
-
-    playRhythm();
-    this.synthInterval = window.setInterval(playRhythm, 900);
-
-    // Active playback timer: advances time smoothly and triggers lyrics / progress bar
+    // Active playback timer: advances time smoothly for visualizer and lyrics
     if (this.playbackTimer) clearInterval(this.playbackTimer);
     this.playbackTimer = window.setInterval(() => {
-      if (!this.isSynthesizing) return;
-      this.virtualCurrentTime += 0.2;
+      this.virtualCurrentTime += 0.25;
       if (this.virtualCurrentTime >= this.virtualDuration) {
         this.virtualCurrentTime = 0;
-        this.stopProceduralSynthesizer();
+        this.stopPlayback();
         this.onEndedCallbacks.forEach(cb => cb());
       } else {
         this.onTimeUpdateCallbacks.forEach(cb => cb(this.virtualCurrentTime, this.virtualDuration));
       }
-    }, 200);
+    }, 250);
 
     this.onPlayStateChangeCallbacks.forEach(cb => cb(true));
   }
 
-  public stopProceduralSynthesizer(): void {
+  public stopPlayback(): void {
     this.isSynthesizing = false;
     this.simIsPlaying = false;
-    if (this.synthInterval) {
-      clearInterval(this.synthInterval);
-      this.synthInterval = null;
-    }
     if (this.playbackTimer) {
       clearInterval(this.playbackTimer);
       this.playbackTimer = null;
     }
+  }
+
+  public stopProceduralSynthesizer(): void {
+    this.stopPlayback();
     this.onPlayStateChangeCallbacks.forEach(cb => cb(false));
   }
 

@@ -2,6 +2,8 @@ import { Track, PlaybackProviderType, PlaybackCapability } from '@/types/music';
 import { audioEngine } from './audioEngine';
 import { youtubeAudioEngine } from './youtubeAudioEngine';
 import { spotifyPlaybackEngine } from './spotifyPlaybackEngine';
+import { spotifyApiService } from './spotifyApiService';
+import { TRACKS_DATA } from '@/data/musicCatalog';
 
 export class PlaybackManager {
   private static instance: PlaybackManager;
@@ -102,35 +104,78 @@ export class PlaybackManager {
   public async playTrack(track: Track, forceProvider?: PlaybackProviderType): Promise<void> {
     this.currentTrack = track;
 
-    // Determine target provider
-    let targetProvider = forceProvider || track.playbackSource.provider || 'SPOTIFY_SDK';
+    // 1. Ensure track has a valid Spotify URI for catalog & metadata
+    let uri = track.playbackSource?.spotifyUri;
+    const isInvalid = !uri || uri.includes('track-') || !uri.startsWith('spotify:track:');
 
-    // Prioritize Spotify Web Playback SDK if track has spotifyUri or provider is SPOTIFY_SDK
-    if (track.playbackSource.spotifyUri || targetProvider === 'SPOTIFY_SDK') {
-      targetProvider = 'SPOTIFY_SDK';
-    } else if (track.isLocalUpload || (!track.playbackSource.youtubeVideoId && track.playbackSource.streamUrl)) {
-      targetProvider = 'HTML5_AUDIO';
+    if (isInvalid && !track.isLocalUpload) {
+      if (track.id && !track.id.startsWith('track-') && track.id.length >= 15) {
+        uri = `spotify:track:${track.id}`;
+        track.playbackSource.spotifyUri = uri;
+      } else {
+        try {
+          const resolved = await spotifyApiService.resolveTrackByTitleAndArtist(track.title, track.artist);
+          if (resolved?.playbackSource?.spotifyUri) {
+            uri = resolved.playbackSource.spotifyUri;
+            track.playbackSource.spotifyUri = uri;
+            track.albumArt = resolved.albumArt || track.albumArt;
+          }
+        } catch (e) {
+          console.warn('[PlaybackManager] Spotify track resolution error:', e);
+        }
+      }
     }
 
-    // Stop whichever provider was previously playing
-    if (this.activeProvider === 'SPOTIFY_SDK' && targetProvider !== 'SPOTIFY_SDK') {
-      await spotifyPlaybackEngine.pause();
-    } else if (this.activeProvider === 'YOUTUBE_IFRAME' && targetProvider !== 'YOUTUBE_IFRAME') {
-      youtubeAudioEngine.pause();
-    } else if (this.activeProvider === 'HTML5_AUDIO' && targetProvider !== 'HTML5_AUDIO') {
+    if (!uri && track.id) {
+      uri = `spotify:track:${track.id}`;
+    }
+
+    // 2. Resolve audio stream for headless background playback
+    let videoId = track.playbackSource?.youtubeVideoId;
+
+    if (!videoId) {
+      const cleanTitle = track.title.toLowerCase().replace(/[\(\[\-].*?[\)\]\-]/g, '').trim();
+      const matched = TRACKS_DATA.find((t) => {
+        const tTitle = t.title.toLowerCase().replace(/[\(\[\-].*?[\)\]\-]/g, '').trim();
+        return tTitle === cleanTitle || t.id === track.id;
+      });
+      if (matched?.playbackSource?.youtubeVideoId) {
+        videoId = matched.playbackSource.youtubeVideoId;
+        track.playbackSource.youtubeVideoId = videoId;
+      }
+    }
+
+    if (!videoId && typeof window !== 'undefined') {
+      try {
+        const res = await fetch(`/api/resolve-audio?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.videoId) {
+            videoId = json.videoId;
+            track.playbackSource.youtubeVideoId = videoId;
+          }
+        }
+      } catch (err) {
+        console.warn('[PlaybackManager] Audio resolution fetch error:', err);
+      }
+    }
+
+    if (videoId) {
+      this.activeProvider = 'YOUTUBE_IFRAME';
+      track.playbackSource.provider = 'YOUTUBE_IFRAME';
       audioEngine.pause();
+      spotifyPlaybackEngine.pause();
+      await youtubeAudioEngine.loadAndPlay(videoId);
+      this.onPlayStateChangeCallbacks.forEach((cb) => cb(true));
+      return;
     }
 
-    this.activeProvider = targetProvider;
-
-    if (targetProvider === 'SPOTIFY_SDK' && track.playbackSource.spotifyUri) {
-      await spotifyPlaybackEngine.loadAndPlay(track.playbackSource.spotifyUri, track.duration);
-    } else if (targetProvider === 'YOUTUBE_IFRAME' && track.playbackSource.youtubeVideoId) {
-      await youtubeAudioEngine.loadAndPlay(track.playbackSource.youtubeVideoId);
-    } else {
-      const url = track.playbackSource.streamUrl || track.audioSrc;
-      await audioEngine.loadAndPlay(url, track.duration);
-    }
+    // 3. Fallback to Spotify SDK / Audio Engine
+    this.activeProvider = 'SPOTIFY_SDK';
+    track.playbackSource.provider = 'SPOTIFY_SDK';
+    audioEngine.pause();
+    youtubeAudioEngine.pause();
+    await spotifyPlaybackEngine.loadAndPlay(uri || `spotify:track:${track.id}`, track.duration, track);
   }
 
   public async resume(): Promise<void> {

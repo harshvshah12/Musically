@@ -10,11 +10,11 @@ const mockTrack: Track = {
   album: 'Hidden Gems',
   albumArt: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819',
   duration: 176,
-  audioSrc: '/audio/excuses.m4a',
+  audioSrc: '',
   playbackSource: {
-    provider: 'YOUTUBE_IFRAME',
+    provider: 'SPOTIFY_SDK',
     capability: 'FULL',
-    youtubeVideoId: 'vX2cDW8LUWk',
+    spotifyUri: 'spotify:track:1fcCPXmH4vUzG6UQTTjZp5',
     durationSeconds: 176,
     isrc: 'IN-A23-20-00123'
   },

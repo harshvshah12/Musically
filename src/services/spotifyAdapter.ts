@@ -91,11 +91,11 @@ export function mapSpotifyArtistToSohaArtist(spotifyArtist: any): Artist {
     name: spotifyArtist.name || 'Unknown Artist',
     aliases: [],
     image,
-    imageSource: 'Spotify Verified Artist',
+    imageSource: 'Verified Artist',
     genres: spotifyArtist.genres || ['Pop'],
     bio: spotifyArtist.genres?.length
       ? `Recognized for ${spotifyArtist.genres.slice(0, 3).join(', ')}.`
-      : 'Spotify Recording Artist.',
+      : 'Recording Artist.',
     monthlyListeners: formatListenerCount(spotifyArtist.followers?.total),
     topTracks: [],
     country: 'International',
@@ -117,13 +117,13 @@ export function mapSpotifyPlaylistToSohaPlaylist(spotifyPlaylist: any): Playlist
 
   return {
     id: spotifyPlaylist.id || `spotify-playlist-${Date.now()}`,
-    name: spotifyPlaylist.name || 'Spotify Playlist',
-    description: spotifyPlaylist.description || 'Spotify Curated Playlist',
+    name: spotifyPlaylist.name || 'Curated Playlist',
+    description: spotifyPlaylist.description || 'Curated Playlist',
     coverImage,
     trackIds: [],
     isCustom: false,
     isPublic: spotifyPlaylist.public ?? true,
-    category: 'Spotify Playlists',
+    category: 'Featured Playlists',
     createdAt: new Date().toISOString().split('T')[0],
   };
 }

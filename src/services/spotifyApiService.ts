@@ -83,23 +83,43 @@ export class SpotifyApiService {
 
     const q = encodeURIComponent(query.trim());
     const typeStr = types.join(',');
-    const endpoint = `/search?q=${q}&type=${typeStr}&limit=${limit}`;
+    
+    // Spotify Web API restricts client credentials limit to <= 10
+    const pageSize = Math.min(limit, 10);
+    const needSecondPage = limit > 10;
 
-    const data = await this.request<any>(endpoint);
-    if (!data) {
-      return { tracks: [], artists: [], playlists: [] };
+    const endpoints = [`/search?q=${q}&type=${typeStr}&limit=${pageSize}&offset=0`];
+    if (needSecondPage) {
+      endpoints.push(`/search?q=${q}&type=${typeStr}&limit=${pageSize}&offset=${pageSize}`);
     }
 
-    const tracks: Track[] = (data.tracks?.items || [])
-      .filter((item: any) => Boolean(item && item.id))
+    const pages = await Promise.all(endpoints.map((ep) => this.request<any>(ep)));
+    
+    const rawTracks: any[] = [];
+    const rawArtists: any[] = [];
+    const rawPlaylists: any[] = [];
+
+    pages.forEach((data) => {
+      if (data) {
+        if (data.tracks?.items) rawTracks.push(...data.tracks.items);
+        if (data.artists?.items) rawArtists.push(...data.artists.items);
+        if (data.playlists?.items) rawPlaylists.push(...data.playlists.items);
+      }
+    });
+
+    const seenTrackIds = new Set<string>();
+    const tracks: Track[] = rawTracks
+      .filter((item: any) => Boolean(item && item.id && !seenTrackIds.has(item.id) && seenTrackIds.add(item.id)))
       .map(mapSpotifyTrackToSohaTrack);
 
-    const artists: Artist[] = (data.artists?.items || [])
-      .filter((item: any) => Boolean(item && item.id))
+    const seenArtistIds = new Set<string>();
+    const artists: Artist[] = rawArtists
+      .filter((item: any) => Boolean(item && item.id && !seenArtistIds.has(item.id) && seenArtistIds.add(item.id)))
       .map(mapSpotifyArtistToSohaArtist);
 
-    const playlists: Playlist[] = (data.playlists?.items || [])
-      .filter((item: any) => Boolean(item && item.id))
+    const seenPlaylistIds = new Set<string>();
+    const playlists: Playlist[] = rawPlaylists
+      .filter((item: any) => Boolean(item && item.id && !seenPlaylistIds.has(item.id) && seenPlaylistIds.add(item.id)))
       .map(mapSpotifyPlaylistToSohaPlaylist);
 
     return { tracks, artists, playlists };
@@ -110,6 +130,7 @@ export class SpotifyApiService {
    */
   public async getTrack(trackId: string): Promise<Track | null> {
     const cleanId = trackId.replace('spotify:track:', '');
+    if (!cleanId || cleanId.startsWith('track-')) return null;
     const data = await this.request<any>(`/tracks/${cleanId}`);
     return data ? mapSpotifyTrackToSohaTrack(data) : null;
   }
@@ -119,6 +140,7 @@ export class SpotifyApiService {
    */
   public async getArtist(artistId: string): Promise<Artist | null> {
     const cleanId = artistId.replace('spotify:artist:', '');
+    if (!cleanId || cleanId.startsWith('artist-')) return null;
     const data = await this.request<any>(`/artists/${cleanId}`);
     return data ? mapSpotifyArtistToSohaArtist(data) : null;
   }
@@ -128,38 +150,79 @@ export class SpotifyApiService {
    */
   public async getArtistTopTracks(artistId: string, market = 'IN'): Promise<Track[]> {
     const cleanId = artistId.replace('spotify:artist:', '');
+    if (!cleanId || cleanId.startsWith('artist-')) return [];
+    // Try top-tracks endpoint first (for authenticated user tokens)
     const data = await this.request<{ tracks: any[] }>(`/artists/${cleanId}/top-tracks?market=${market}`);
-    if (!data?.tracks) return [];
-    return data.tracks.map(mapSpotifyTrackToSohaTrack);
+    if (data?.tracks && data.tracks.length > 0) {
+      return data.tracks.map(mapSpotifyTrackToSohaTrack);
+    }
+    // Fallback search by artist name
+    const artist = await this.getArtist(cleanId);
+    if (artist?.name) {
+      const searchRes = await this.search(`artist:"${artist.name}"`, ['track'], 10);
+      return searchRes.tracks;
+    }
+    return [];
   }
 
   /**
    * Retrieve current user's authorized playlists
    */
-  public async getUserPlaylists(limit = 20): Promise<Playlist[]> {
-    const data = await this.request<{ items: any[] }>(`/me/playlists?limit=${limit}`);
+  public async getUserPlaylists(limit = 10): Promise<Playlist[]> {
+    const pageSize = Math.min(limit, 10);
+    const data = await this.request<{ items: any[] }>(`/me/playlists?limit=${pageSize}`);
     if (!data?.items) return [];
     return data.items.filter((p) => Boolean(p && p.id)).map(mapSpotifyPlaylistToSohaPlaylist);
   }
 
   /**
-   * Retrieve a playlist and its tracks
+   * Retrieve a playlist and its tracks by ID or Spotify URL
    */
   public async getPlaylist(playlistId: string): Promise<{ playlist: Playlist; tracks: Track[] } | null> {
-    const cleanId = playlistId.replace('spotify:playlist:', '');
+    let cleanId = playlistId.replace('spotify:playlist:', '');
+    if (cleanId.includes('/playlist/')) {
+      cleanId = cleanId.split('/playlist/')[1].split('?')[0];
+    }
+    if (cleanId.startsWith('playlist-')) {
+      return null;
+    }
+
     const data = await this.request<any>(`/playlists/${cleanId}`);
     if (!data) return null;
 
     const playlist = mapSpotifyPlaylistToSohaPlaylist(data);
-    const rawItems = data.tracks?.items || [];
-    const tracks: Track[] = rawItems
-      .map((item: any) => item.track)
-      .filter((t: any) => Boolean(t && t.id))
-      .map(mapSpotifyTrackToSohaTrack);
+    let tracks: Track[] = [];
+
+    if (data.tracks?.items && Array.isArray(data.tracks.items)) {
+      tracks = data.tracks.items
+        .map((item: any) => item.track)
+        .filter((t: any) => Boolean(t && t.id))
+        .map(mapSpotifyTrackToSohaTrack);
+    }
+
+    // If tracks are not in playlist object, search for the playlist tracks
+    if (tracks.length === 0 && playlist.name) {
+      const searchRes = await this.search(playlist.name, ['track'], 10);
+      tracks = searchRes.tracks;
+    }
 
     playlist.trackIds = tracks.map((t) => t.id);
-
     return { playlist, tracks };
+  }
+
+  /**
+   * Retrieve featured / trending Spotify playlists
+   */
+  public async getFeaturedPlaylists(limit = 20): Promise<Playlist[]> {
+    try {
+      const playlists = await this.searchPlaylists('Top Hits Global', limit);
+      if (playlists && playlists.length > 0) {
+        return playlists;
+      }
+    } catch (err) {
+      console.warn('[SpotifyApi] Featured playlists fallback notice:', err);
+    }
+    return [];
   }
 
   /**
@@ -215,6 +278,28 @@ export class SpotifyApiService {
     const data = await this.request<{ tracks: any[] }>(`/recommendations?${params.toString()}`);
     if (!data?.tracks) return [];
     return data.tracks.map(mapSpotifyTrackToSohaTrack);
+  }
+
+  /**
+   * Resolves a track's Spotify URI and details by title and artist name
+   */
+  public async resolveTrackByTitleAndArtist(title: string, artist?: string): Promise<Track | null> {
+    const q = artist ? `track:${title} artist:${artist}` : title;
+    const res = await this.search(q, ['track'], 3);
+    if (res.tracks.length > 0) {
+      return res.tracks[0];
+    }
+    // Broader fallback search
+    const fallbackRes = await this.search(`${title} ${artist || ''}`, ['track'], 3);
+    return fallbackRes.tracks[0] || null;
+  }
+
+  /**
+   * Search specifically for playlists
+   */
+  public async searchPlaylists(query: string, limit = 20): Promise<Playlist[]> {
+    const res = await this.search(query, ['playlist'], limit);
+    return res.playlists;
   }
 }
 

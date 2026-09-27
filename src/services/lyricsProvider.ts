@@ -72,22 +72,41 @@ class LyricsProvider {
       }
       
       // Try search endpoint as fallback
-      const searchParams = new URLSearchParams({
-        track_name: cleanTitle,
-        artist_name: cleanArtist
-      });
-      const searchRes = await fetch(`https://lrclib.net/api/search?${searchParams}`);
+      const searchRes = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(`${cleanTitle} ${cleanArtist}`)}`);
       if (searchRes.ok) {
         const results = await searchRes.json();
-        if (results.length > 0 && results[0].syncedLyrics) {
-          const lines = this.parseLrcString(results[0].syncedLyrics, trackId);
+        const bestSynced = Array.isArray(results) ? results.find((r: any) => r.syncedLyrics) : null;
+        if (bestSynced && bestSynced.syncedLyrics) {
+          const lines = this.parseLrcString(bestSynced.syncedLyrics, trackId);
           const verified: VerifiedLyrics = {
             trackId, title, artist,
             durationMs: durationSec * 1000,
             syncType: 'LINE_SYNC',
             lines,
             source: 'LRCLIB',
-            confidenceScore: 0.85,
+            confidenceScore: 0.9,
+            lyricsOffsetMs: 0,
+            isVerified: true
+          };
+          this.cache.set(cacheKey, verified);
+          return verified;
+        }
+
+        const bestPlain = Array.isArray(results) ? results.find((r: any) => r.plainLyrics) : null;
+        if (bestPlain && bestPlain.plainLyrics) {
+          const lines = bestPlain.plainLyrics.split('\n').filter((l: string) => l.trim()).map((text: string, i: number) => ({
+            id: `line-${i}`,
+            startTimeMs: 0,
+            endTimeMs: 0,
+            text: text.trim()
+          }));
+          const verified: VerifiedLyrics = {
+            trackId, title, artist,
+            durationMs: durationSec * 1000,
+            syncType: 'UNSYNCED',
+            lines,
+            source: 'LRCLIB',
+            confidenceScore: 0.75,
             lyricsOffsetMs: 0,
             isVerified: true
           };

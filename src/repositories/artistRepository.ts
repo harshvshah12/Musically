@@ -97,16 +97,14 @@ class ArtistRepository {
     if (!query.trim()) return this.getAllArtists();
 
     try {
-      if (spotifyAuthService.isAuthenticated()) {
-        const { artists: spotifyArtists } = await spotifyApiService.search(query, ['artist'], 12);
-        if (spotifyArtists.length > 0) {
-          spotifyArtists.forEach((sa) => {
-            if (!this.inMemoryCache.some((c) => c.id === sa.id)) {
-              this.inMemoryCache.push(sa);
-            }
-          });
-          return spotifyArtists;
-        }
+      const { artists: spotifyArtists } = await spotifyApiService.search(query, ['artist'], 12);
+      if (spotifyArtists.length > 0) {
+        spotifyArtists.forEach((sa) => {
+          if (!this.inMemoryCache.some((c) => c.id === sa.id)) {
+            this.inMemoryCache.push(sa);
+          }
+        });
+        return spotifyArtists;
       }
     } catch {
       // Fallback

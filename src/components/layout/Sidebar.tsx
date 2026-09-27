@@ -162,23 +162,25 @@ export const Sidebar: React.FC = () => {
           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-2 mb-1">
             Playlists
           </span>
-          {playlists.map((pl) => {
-            const isSelected = activeRoute === 'playlist-detail' && activePlaylistId === pl.id;
-            return (
-              <button
-                key={pl.id}
-                onClick={() => navigateTo('playlist-detail', { playlistId: pl.id })}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs truncate transition-all ${
-                  isSelected 
-                    ? 'bg-rose-500/20 text-rose-300 font-semibold border-l-2 border-rose-500'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                }`}
-              >
-                {pl.isBirthdaySpecial ? '🎂 ' : ''}
-                {pl.name}
-              </button>
-            );
-          })}
+          {playlists
+            .filter((pl) => pl.isCustom || pl.isBirthdaySpecial || pl.id.startsWith('playlist-') || pl.id.startsWith('pl-'))
+            .map((pl) => {
+              const isSelected = activeRoute === 'playlist-detail' && activePlaylistId === pl.id;
+              return (
+                <button
+                  key={pl.id}
+                  onClick={() => navigateTo('playlist-detail', { playlistId: pl.id })}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs truncate transition-all ${
+                    isSelected 
+                      ? 'bg-rose-500/20 text-rose-300 font-semibold border-l-2 border-rose-500'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  }`}
+                >
+                  {pl.isBirthdaySpecial && !pl.name.startsWith('🎂') ? '🎂 ' : ''}
+                  {pl.name}
+                </button>
+              );
+            })}
         </div>
       )}
 

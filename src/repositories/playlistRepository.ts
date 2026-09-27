@@ -71,9 +71,9 @@ class PlaylistRepository {
       }
     }
 
-    // 3. Check Spotify playlists if authenticated
-    try {
-      if (spotifyAuthService.isAuthenticated()) {
+    // 3. Check Spotify playlists for authenticated user
+    if (spotifyAuthService.isAuthenticated()) {
+      try {
         const spotifyPlaylists = await spotifyApiService.getUserPlaylists(20);
         if (spotifyPlaylists.length > 0) {
           const merged = [
@@ -84,9 +84,9 @@ class PlaylistRepository {
           this.isLoaded = true;
           return this.inMemoryCache;
         }
+      } catch {
+        // Fallback
       }
-    } catch {
-      // Fallback
     }
 
     this.inMemoryCache = [...PLAYLISTS_DATA];

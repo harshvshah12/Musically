@@ -33,21 +33,27 @@ export const PlaylistDetailPage: React.FC = () => {
   } = useLibraryStore();
   const { playTrack, toggleShuffle } = usePlayerStore();
 
+  const [dynamicPlaylist, setDynamicPlaylist] = React.useState<Playlist | null>(null);
   const [dynamicTracks, setDynamicTracks] = React.useState<Track[] | null>(null);
 
   React.useEffect(() => {
     if (!activePlaylistId) return;
-    if (activePlaylistId.startsWith('spotify:playlist:') || activePlaylistId.length === 22) {
+    const isLocal = playlists.some((p) => p.id === activePlaylistId);
+    if (!isLocal && (activePlaylistId.startsWith('spotify:playlist:') || activePlaylistId.length === 22 || activePlaylistId.includes('/playlist/'))) {
       spotifyApiService.getPlaylist(activePlaylistId).then((res) => {
-        if (res && res.tracks.length > 0) {
-          setDynamicTracks(res.tracks);
+        if (res) {
+          setDynamicPlaylist(res.playlist);
+          if (res.tracks.length > 0) {
+            setDynamicTracks(res.tracks);
+            useLibraryStore.getState().importSpotifyPlaylist(res.playlist, res.tracks);
+          }
         }
       });
     }
-  }, [activePlaylistId]);
+  }, [activePlaylistId, playlists]);
 
   const playlist = activePlaylistId
-    ? playlists.find((pl: Playlist) => pl.id === activePlaylistId)
+    ? (playlists.find((pl: Playlist) => pl.id === activePlaylistId) || dynamicPlaylist)
     : null;
   const allTracks = getAllTracks();
 

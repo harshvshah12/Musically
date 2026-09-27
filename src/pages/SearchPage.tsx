@@ -35,30 +35,37 @@ export const SearchPage: React.FC = () => {
     playlists: Playlist[];
   } | null>(null);
 
-  // Live Spotify Web API search with 250ms debounce
+  const [isSearching, setIsSearching] = React.useState(false);
+
+  // Live Spotify Web API search with 200ms debounce - ONLY searches Spotify directory
   React.useEffect(() => {
     if (!query) {
       setSpotifyResults(null);
+      setIsSearching(false);
       return;
     }
 
     let isMounted = true;
+    setIsSearching(true);
     const timer = setTimeout(async () => {
       try {
-        if (spotifyAuthService.isAuthenticated()) {
-          const results = await spotifyApiService.search(query, ['track', 'artist', 'playlist'], 20);
-          if (isMounted && results && (results.tracks.length > 0 || results.artists.length > 0 || results.playlists.length > 0)) {
-            setSpotifyResults(results);
-            return;
+        const results = await spotifyApiService.search(query, ['track', 'artist', 'playlist'], 20);
+        if (isMounted) {
+          // Import tracks into library store for instant access
+          if (results.tracks.length > 0) {
+            useLibraryStore.getState().importSpotifyTracks(results.tracks);
           }
+          setSpotifyResults(results);
+          setIsSearching(false);
         }
       } catch (err) {
-        console.warn('[SearchPage] Spotify search notice:', err);
+        console.warn('[SearchPage] Spotify search error:', err);
+        if (isMounted) {
+          setSpotifyResults({ tracks: [], artists: [], playlists: [] });
+          setIsSearching(false);
+        }
       }
-      if (isMounted) {
-        setSpotifyResults(null);
-      }
-    }, 250);
+    }, 200);
 
     return () => {
       isMounted = false;
@@ -70,39 +77,9 @@ export const SearchPage: React.FC = () => {
     if (!query) {
       return { tracks: [], artists: [], playlists: [] };
     }
-
-    // If live Spotify results are available, present them
-    if (spotifyResults) {
-      return spotifyResults;
-    }
-
-    // Local fallback matching
-    const matchedTracks = allTracks.filter((t: Track) => 
-      t.title.toLowerCase().includes(lowerQuery) ||
-      t.artist.toLowerCase().includes(lowerQuery) ||
-      t.genre.toLowerCase().includes(lowerQuery) ||
-      t.mood.toLowerCase().includes(lowerQuery) ||
-      (t.lyrics && t.lyrics.some((l: string) => l.toLowerCase().includes(lowerQuery)))
-    );
-
-    const matchedArtists = ARTISTS_DATA.filter((a: Artist) =>
-      a.name.toLowerCase().includes(lowerQuery) ||
-      a.aliases?.some((al) => al.toLowerCase().includes(lowerQuery)) ||
-      a.country?.toLowerCase().includes(lowerQuery) ||
-      a.genres.some((g: string) => g.toLowerCase().includes(lowerQuery))
-    );
-
-    const matchedPlaylists = playlists.filter((p: Playlist) =>
-      p.name.toLowerCase().includes(lowerQuery) ||
-      p.description.toLowerCase().includes(lowerQuery)
-    );
-
-    return {
-      tracks: matchedTracks,
-      artists: matchedArtists,
-      playlists: matchedPlaylists
-    };
-  }, [query, lowerQuery, spotifyResults, allTracks, playlists]);
+    // Strictly Spotify directory results
+    return spotifyResults || { tracks: [], artists: [], playlists: [] };
+  }, [query, spotifyResults]);
 
   const hasResults = searchResults.tracks.length > 0 || searchResults.artists.length > 0 || searchResults.playlists.length > 0;
 
@@ -154,11 +131,17 @@ export const SearchPage: React.FC = () => {
       {/* Search Results Display */}
       {query && (
         <div className="space-y-10">
-          {!hasResults ? (
+          {isSearching && !hasResults ? (
+            <div className="py-20 text-center text-slate-500">
+              <Disc3 className="w-12 h-12 mx-auto mb-3 text-rose-500 animate-spin" />
+              <p className="text-lg font-bold text-slate-300">Searching Music Catalog...</p>
+              <p className="text-xs text-slate-500 mt-1">Fetching tracks, artists, and playlists live</p>
+            </div>
+          ) : !hasResults ? (
             <div className="py-20 text-center text-slate-500">
               <Disc3 className="w-12 h-12 mx-auto mb-3 opacity-40 animate-spin-slow" />
               <p className="text-lg font-bold text-slate-400">No matching tracks or artists found for "{searchQuery}"</p>
-              <p className="text-xs text-slate-500 mt-1">Try searching for "Punjabi", "Arijit", "Diljit", "Late Night", or "Acoustic".</p>
+              <p className="text-xs text-slate-500 mt-1">Try searching for any artist, song title, or album.</p>
             </div>
           ) : (
             <>

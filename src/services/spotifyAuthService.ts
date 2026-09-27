@@ -24,6 +24,8 @@ export interface TokenResponse {
 const STORAGE_ACCESS_TOKEN = 'spotify_access_token';
 const STORAGE_REFRESH_TOKEN = 'spotify_refresh_token';
 const STORAGE_EXPIRES_AT = 'spotify_token_expires_at';
+const STORAGE_APP_TOKEN = 'spotify_app_token';
+const STORAGE_APP_EXPIRES_AT = 'spotify_app_expires_at';
 const STORAGE_USER_PROFILE = 'spotify_user_profile';
 const SESSION_VERIFIER = 'spotify_pkce_verifier';
 const SESSION_STATE = 'spotify_pkce_state';
@@ -45,12 +47,15 @@ export const SPOTIFY_SCOPES = [
 export class SpotifyAuthService {
   private static instance: SpotifyAuthService;
   private clientId: string;
+  private clientSecret: string;
   private redirectUri: string;
   private refreshPromise: Promise<string | null> | null = null;
+  private appTokenPromise: Promise<string | null> | null = null;
   private listeners: Set<(isAuthenticated: boolean, profile: SpotifyUserProfile | null) => void> = new Set();
 
   private constructor() {
     this.clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '572a3fd93c4547f783775e396d70c64c';
+    this.clientSecret = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET || '8428d92f2e3e42db937a0d14c6a01295';
     this.redirectUri =
       import.meta.env.VITE_SPOTIFY_REDIRECT_URI ||
       (typeof window !== 'undefined' ? `${window.location.origin}/callback` : 'https://localhost:5173/callback');
@@ -200,9 +205,25 @@ export class SpotifyAuthService {
   }
 
   /**
-   * Retrieves active access token, auto-refreshing if expired
+   * Retrieves active access token. Prioritizes user session token (PKCE),
+   * and seamlessly falls back to Client Credentials app token so search & catalog are ALWAYS active.
    */
   public async getAccessToken(): Promise<string | null> {
+    if (typeof window === 'undefined') return null;
+
+    const userToken = await this.getUserAccessToken();
+    if (userToken) {
+      return userToken;
+    }
+
+    // Seamless fallback to Client Credentials token (un-gated catalog & search)
+    return this.getClientCredentialsToken();
+  }
+
+  /**
+   * Retrieves user-specific OAuth access token (required for Web Playback SDK streaming and /me endpoints)
+   */
+  public async getUserAccessToken(): Promise<string | null> {
     if (typeof window === 'undefined') return null;
 
     const token = localStorage.getItem(STORAGE_ACCESS_TOKEN);
@@ -223,6 +244,66 @@ export class SpotifyAuthService {
     }
 
     return null;
+  }
+
+  /**
+   * Automatically obtains an app-level token via Spotify Client Credentials flow.
+   * This provides instantaneous, un-gated catalog and search access without requiring user login.
+   */
+  public async getClientCredentialsToken(): Promise<string | null> {
+    if (typeof window === 'undefined') return null;
+
+    const cached = localStorage.getItem(STORAGE_APP_TOKEN);
+    const expiresAtStr = localStorage.getItem(STORAGE_APP_EXPIRES_AT);
+    const expiresAt = expiresAtStr ? parseInt(expiresAtStr, 10) : 0;
+
+    if (cached && Date.now() < expiresAt) {
+      return cached;
+    }
+
+    if (this.appTokenPromise) {
+      return this.appTokenPromise;
+    }
+
+    this.appTokenPromise = (async () => {
+      try {
+        const authHeader = btoa(`${this.clientId}:${this.clientSecret}`);
+        const body = new URLSearchParams({
+          grant_type: 'client_credentials',
+        });
+
+        const response = await fetch('https://accounts.spotify.com/api/token', {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: body.toString(),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          console.warn('[SpotifyAuth] Client credentials request failed:', response.status, errText);
+          return null;
+        }
+
+        const data = await response.json();
+        if (data.access_token) {
+          localStorage.setItem(STORAGE_APP_TOKEN, data.access_token);
+          const newExpiresAt = Date.now() + ((data.expires_in || 3600) - 60) * 1000;
+          localStorage.setItem(STORAGE_APP_EXPIRES_AT, newExpiresAt.toString());
+          return data.access_token;
+        }
+        return null;
+      } catch (err) {
+        console.warn('[SpotifyAuth] Error requesting client credentials token:', err);
+        return null;
+      } finally {
+        this.appTokenPromise = null;
+      }
+    })();
+
+    return this.appTokenPromise;
   }
 
   /**
@@ -327,11 +408,26 @@ export class SpotifyAuthService {
   }
 
   /**
-   * Checks if user is authenticated
+   * Checks if user is authenticated via OAuth PKCE
    */
   public isAuthenticated(): boolean {
     if (typeof window === 'undefined') return false;
     return Boolean(localStorage.getItem(STORAGE_ACCESS_TOKEN) || localStorage.getItem(STORAGE_REFRESH_TOKEN));
+  }
+
+  /**
+   * Alias for isAuthenticated()
+   */
+  public hasUserAuth(): boolean {
+    return this.isAuthenticated();
+  }
+
+  /**
+   * Checks if Spotify API is operational (via User Token or App Client Credentials)
+   */
+  public async isApiReady(): Promise<boolean> {
+    const token = await this.getAccessToken();
+    return Boolean(token);
   }
 
   /**

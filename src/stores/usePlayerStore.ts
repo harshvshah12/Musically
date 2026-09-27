@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Track, VerifiedLyrics, PlaybackProviderType, PlaybackMachineState } from '@/types/music';
-import { TRACKS_DATA } from '@/data/musicCatalog';
+import { SOHA_CURATED_SPOTIFY_TRACKS } from './useLibraryStore';
 import { playbackManager } from '@/services/playbackManager';
 import { lyricsSyncEngine } from '@/services/lyricsSyncEngine';
 import { extractColorFromImage, applyAccentToRoot } from '@/services/colorExtractor';
@@ -17,13 +17,16 @@ function loadSavedQueue(): Track[] {
       const saved = localStorage.getItem(STORAGE_QUEUE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const valid = parsed.filter((t: Track) => t && t.id && !t.id.startsWith('track-'));
+          if (valid.length > 0) return valid;
+        }
       }
     }
   } catch {
     // Ignore error
   }
-  return TRACKS_DATA;
+  return SOHA_CURATED_SPOTIFY_TRACKS;
 }
 
 function saveQueueToStorage(queue: Track[]) {
@@ -149,7 +152,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
   });
 
   const initialQueue = loadSavedQueue();
-  const initialTrack = initialQueue[0] || TRACKS_DATA[0];
+  const initialTrack = initialQueue[0] || SOHA_CURATED_SPOTIFY_TRACKS[0];
 
   return {
     currentTrack: initialTrack,
@@ -157,7 +160,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     playbackState: 'IDLE',
     retryCount: 0,
     currentTime: 0,
-    duration: initialTrack?.duration || 176,
+    duration: initialTrack?.duration || 200,
     volume: 0.85,
     isMuted: false,
     playbackRate: 1.0,
@@ -168,7 +171,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     originalQueue: initialQueue,
     history: [],
     isLyricsOpen: false,
-    activeProvider: initialTrack?.playbackSource.provider || 'YOUTUBE_IFRAME',
+    activeProvider: 'SPOTIFY_SDK',
     verifiedLyrics: null,
     activeLyricIndex: 0,
 
@@ -200,7 +203,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         retryCount: 0,
         verifiedLyrics: null,
         activeLyricIndex: -1,
-        activeProvider: track.playbackSource.provider || 'YOUTUBE_IFRAME',
+        activeProvider: 'SPOTIFY_SDK',
         history: state.currentTrack
           ? [state.currentTrack, ...state.history.slice(0, 20)]
           : state.history,

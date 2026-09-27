@@ -17,6 +17,7 @@ export class YouTubeAudioEngine {
   private isReady = false;
   private currentVideoId: string | null = null;
   private pendingVideoId: string | null = null;
+  private currentVolume = 0.85;
   private progressInterval: number | null = null;
 
   private onTimeUpdateCallbacks: Set<(currentTime: number, duration: number) => void> = new Set();
@@ -81,16 +82,18 @@ export class YouTubeAudioEngine {
     if (!host) {
       host = document.createElement('div');
       host.id = 'youtube-audio-player-host';
-      // In Chromium browsers, iframes must be rendered with non-zero dimensions
-      // inside the viewport to satisfy W3C Media Autoplay requirements.
+      // In Chromium browsers, iframes must remain rendered within the viewport
+      // without opacity:0 or negative z-indexes to satisfy autoplay policies.
       host.style.position = 'fixed';
       host.style.bottom = '0px';
       host.style.right = '0px';
-      host.style.width = '240px';
-      host.style.height = '160px';
-      host.style.zIndex = '-999';
-      host.style.opacity = '0.001';
+      host.style.width = '200px';
+      host.style.height = '120px';
+      host.style.transform = 'scale(0.001)';
+      host.style.transformOrigin = 'bottom right';
       host.style.pointerEvents = 'none';
+      host.style.zIndex = '1';
+      host.style.opacity = '1';
       document.body.appendChild(host);
     }
 
@@ -103,8 +106,8 @@ export class YouTubeAudioEngine {
 
     try {
       this.player = new window.YT.Player('youtube-player-element', {
-        height: '160',
-        width: '240',
+        height: '120',
+        width: '200',
         host: 'https://www.youtube.com',
         playerVars: {
           autoplay: 1,
@@ -112,6 +115,8 @@ export class YouTubeAudioEngine {
           controls: 0,
           disablekb: 1,
           enablejsapi: 1,
+          origin: typeof window !== 'undefined' ? window.location.origin : '',
+          widget_referrer: typeof window !== 'undefined' ? window.location.origin : '',
           rel: 0,
           modestbranding: 1,
           iv_load_policy: 3
@@ -195,6 +200,12 @@ export class YouTubeAudioEngine {
     }
 
     try {
+      if (typeof this.player.unMute === 'function') {
+        this.player.unMute();
+      }
+      if (typeof this.player.setVolume === 'function') {
+        this.player.setVolume(Math.round(this.currentVolume * 100));
+      }
       if (typeof this.player.loadVideoById === 'function') {
         this.player.loadVideoById({
           videoId: videoId,
@@ -244,10 +255,11 @@ export class YouTubeAudioEngine {
   }
 
   public setVolume(volume: number): void {
+    this.currentVolume = Math.max(0, Math.min(1, volume));
     // YouTube volume is 0 - 100
     if (this.player && typeof this.player.setVolume === 'function') {
       try {
-        this.player.setVolume(Math.round(Math.max(0, Math.min(1, volume)) * 100));
+        this.player.setVolume(Math.round(this.currentVolume * 100));
       } catch {
         // ignore
       }

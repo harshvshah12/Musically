@@ -50,7 +50,7 @@ export const PersistentPlayer: React.FC = () => {
   } = usePlayerStore();
 
   const { isLiked, toggleLikeTrack } = useLibraryStore();
-  const { navigateTo, openAddToPlaylistModal } = useUIStore();
+  const { activeRoute, navigateTo, openAddToPlaylistModal } = useUIStore();
 
   const [isQueueOpen, setIsQueueOpen] = useState(false);
 
@@ -300,8 +300,18 @@ export const PersistentPlayer: React.FC = () => {
 
           {/* Synced Lyrics Toggle */}
           <button
-            onClick={toggleLyrics}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+            onClick={() => {
+              if (activeRoute === 'now-playing') {
+                navigateTo('home');
+              } else {
+                navigateTo('now-playing');
+              }
+            }}
+            className={`p-2 rounded-xl transition-all ${
+              activeRoute === 'now-playing'
+                ? 'bg-rose-500/20 text-rose-300 shadow-sm shadow-rose-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
             title="Toggle Lyrics"
           >
             <Mic2 className="w-4 h-4" />

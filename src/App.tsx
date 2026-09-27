@@ -51,8 +51,10 @@ export const App: React.FC = () => {
         const cleanPath = window.location.pathname === '/callback' ? '/' : window.location.pathname;
         window.history.replaceState({}, document.title, cleanPath);
       });
-    } else if (spotifyAuthService.isAuthenticated()) {
-      spotifyPlaybackEngine.initializePlayer();
+    } else {
+      if (spotifyAuthService.isAuthenticated()) {
+        spotifyPlaybackEngine.initializePlayer();
+      }
       syncWithSpotify();
     }
   }, [showToast, syncWithSpotify]);

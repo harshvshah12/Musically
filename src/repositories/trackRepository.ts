@@ -119,22 +119,20 @@ class TrackRepository {
   async searchTracks(query: string): Promise<Track[]> {
     if (!query.trim()) return this.getAllTracks();
 
-    // 1. If Spotify is authenticated, search Spotify Web API first
-    if (spotifyAuthService.isAuthenticated()) {
-      try {
-        const { tracks: spotifyTracks } = await spotifyApiService.search(query, ['track'], 25);
-        if (spotifyTracks.length > 0) {
-          // Cache retrieved tracks in memory for immediate playback
-          spotifyTracks.forEach((st) => {
-            if (!this.inMemoryCache.some((c) => c.id === st.id)) {
-              this.inMemoryCache.push(st);
-            }
-          });
-          return spotifyTracks;
-        }
-      } catch (err) {
-        console.warn('[TrackRepository] Spotify search failed, falling back to local catalog:', err);
+    // 1. Query Spotify Web API first for global Spotify catalog access
+    try {
+      const { tracks: spotifyTracks } = await spotifyApiService.search(query, ['track'], 30);
+      if (spotifyTracks.length > 0) {
+        // Cache retrieved tracks in memory for immediate playback
+        spotifyTracks.forEach((st) => {
+          if (!this.inMemoryCache.some((c) => c.id === st.id)) {
+            this.inMemoryCache.push(st);
+          }
+        });
+        return spotifyTracks;
       }
+    } catch (err) {
+      console.warn('[TrackRepository] Spotify search notice, falling back to local catalog:', err);
     }
 
     // 2. Fallback to local catalog
@@ -153,21 +151,19 @@ class TrackRepository {
   }
 
   async getTracksByArtist(artistId: string): Promise<Track[]> {
-    // 1. If Spotify is authenticated, fetch artist top tracks from Spotify
-    if (spotifyAuthService.isAuthenticated() || artistId.length === 22) {
-      try {
-        const spotifyTracks = await spotifyApiService.getArtistTopTracks(artistId);
-        if (spotifyTracks.length > 0) {
-          spotifyTracks.forEach((st) => {
-            if (!this.inMemoryCache.some((c) => c.id === st.id)) {
-              this.inMemoryCache.push(st);
-            }
-          });
-          return spotifyTracks;
-        }
-      } catch {
-        // Fallback
+    // 1. Fetch artist top tracks from Spotify
+    try {
+      const spotifyTracks = await spotifyApiService.getArtistTopTracks(artistId);
+      if (spotifyTracks.length > 0) {
+        spotifyTracks.forEach((st) => {
+          if (!this.inMemoryCache.some((c) => c.id === st.id)) {
+            this.inMemoryCache.push(st);
+          }
+        });
+        return spotifyTracks;
       }
+    } catch {
+      // Fallback
     }
 
     // 2. Fallback to local catalog

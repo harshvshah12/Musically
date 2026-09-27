@@ -24,6 +24,7 @@ export class TrackValidator {
     const provider = track.playbackSource.provider;
     const capability = track.playbackSource.capability;
     const hasSource = Boolean(
+      (provider === 'SPOTIFY_SDK' && track.playbackSource.spotifyUri) ||
       (provider === 'YOUTUBE_IFRAME' && track.playbackSource.youtubeVideoId) ||
       (provider === 'HTML5_AUDIO' && (track.playbackSource.streamUrl || track.audioSrc)) ||
       track.isLocalUpload
